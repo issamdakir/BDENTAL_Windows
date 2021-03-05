@@ -1,0 +1,2105 @@
+# Python imports :
+import os, sys, shutil
+from os.path import join, dirname, exists,abspath
+
+from math import degrees, radians, pi
+import numpy as np
+from time import sleep, perf_counter as Tcounter
+from queue import Queue
+from importlib import reload  
+from bpy.app.handlers import persistent
+
+
+# Blender Imports :
+import bpy
+import bmesh
+from mathutils import Matrix, Vector, Euler, kdtree
+
+import SimpleITK as sitk
+import vtk
+import cv2
+try :
+    cv2 = reload(cv2)
+except ImportError :
+    pass
+from vtk.util import numpy_support
+from vtk import vtkCommand
+
+# Global Variables :
+
+ProgEvent = vtkCommand.ProgressEvent
+
+#######################################################################################
+# Popup message box function :
+#######################################################################################
+
+def ShowMessageBox(message=[], title="INFO", icon="INFO"):
+    def draw(self, context):
+        for txtLine in message:
+            self.layout.label(text=txtLine)
+
+    bpy.context.window_manager.popup_menu(draw, title=title, icon=icon)
+
+#######################################################################################
+# Load CT Scan functions :
+#######################################################################################
+def get_all_addons(display=False):
+    """
+    Prints the addon state based on the user preferences.
+    
+    """
+    import bpy as _bpy
+    from addon_utils import check,paths,enable
+    import sys
+
+
+    # RELEASE SCRIPTS: official scripts distributed in Blender releases
+    paths_list = paths()
+    addon_list = []
+    for path in paths_list:
+        _bpy.utils._sys_path_ensure(path)
+        for mod_name, mod_path in _bpy.path.module_names(path):
+            is_enabled, is_loaded = check(mod_name)
+            addon_list.append(mod_name)
+            if display:  #for example
+                print("%s default:%s loaded:%s"%(mod_name,is_enabled,is_loaded))
+            
+    return(addon_list)
+    
+
+def Addon_Enable(AddonName, Enable=True) :
+    import addon_utils as AU
+    is_enabled, is_loaded = AU.check(AddonName)
+    #for mod in AU.modules() :
+        #Name = mod.bl_info["name"]
+        #print(Name)
+    if Enable :
+        if not is_enabled :
+            AU.enable(AddonName, default_set=True)
+    if not Enable :
+        if is_enabled :
+            AU.disable(AddonName, default_set=True)
+            
+    is_enabled, is_loaded = AU.check(AddonName)
+    # print(f"{AddonName} : (is_enabled : {is_enabled} , is_loaded : {is_loaded})")
+        
+
+def CleanScanData(Preffix) :
+    D = bpy.data
+    Objects = D.objects
+    Meshes = D.meshes
+    Images = D.images
+    Materials = D.materials
+    NodeGroups = D.node_groups
+
+    # Remove Voxel data :
+    [Meshes.remove(m) for m in Meshes if f"{Preffix}_PLANE_" in m.name]
+    [Images.remove(img) for img in Images if f"{Preffix}_img" in img.name]
+    [Materials.remove(mat) for mat in Materials if "BD001_Voxelmat_" in mat.name]
+    [NodeGroups.remove(NG) for NG in NodeGroups if "BD001_VGS_" in NG.name]
+
+    # Remove old Slices :
+    SlicePlanes = [Objects.remove(obj) for obj in Objects if Preffix in obj.name and "SLICE" in obj.name]
+    SliceMeshes = [Meshes.remove(m) for m in Meshes if Preffix in m.name and "SLICE" in m.name]
+    SliceMats = [Materials.remove(mat) for mat in Materials if Preffix in mat.name and "SLICE" in mat.name]
+    SliceImages = [Images.remove(img) for img in Images if Preffix in img.name and "SLICE" in img.name]
+    
+
+
+
+def CtxOverride(context):
+    Override = context.copy()
+    area3D = [area for area in context.screen.areas if area.type == "VIEW_3D"][0]
+    space3D = [space for space in area3D.spaces if space.type == "VIEW_3D"][0]
+    region3D = [reg for reg in area3D.regions if reg.type == "WINDOW"][0]
+    Override["area"], Override["space_data"], Override["region"] = (
+        area3D,
+        space3D,
+        region3D,
+    )
+    return Override, area3D, space3D
+
+def AbsPath(P):
+    # if P.startswith('//') :
+    P = abspath(bpy.path.abspath(P))
+    return P   
+
+def RelPath(P):
+    if not P.startswith('//') :
+        P = bpy.path.relpath(abspath(P))
+    return P
+############################
+# Make directory function :
+############################
+def make_directory(Root, DirName):
+
+    DirPath = join(Root, DirName)
+    if not DirName in os.listdir(Root):
+        os.mkdir(DirPath)
+    return DirPath
+
+################################
+# Copy DcmSerie To ProjDir function :
+################################
+def CopyDcmSerieToProjDir(DcmSerie, DicomSeqDir):
+    for i in range(len(DcmSerie)):
+        shutil.copy2(DcmSerie[i], DicomSeqDir)
+
+##########################################################################################
+######################### BDENTAL Volume Render : ########################################
+##########################################################################################
+
+def PlaneCut(Target, Plane, inner=False, outer=False, fill=False):
+
+    bpy.ops.object.select_all(action="DESELECT")
+    Target.select_set(True)
+    bpy.context.view_layer.objects.active = Target
+
+    Pco = Plane.matrix_world.translation
+    Pno = Plane.matrix_world.to_3x3().transposed()[2]
+
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.bisect(
+        plane_co=Pco,
+        plane_no=Pno,
+        use_fill=fill,
+        clear_inner=inner,
+        clear_outer=outer,
+    )
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+def AddBooleanCube(DimX, DimY, DimZ):
+    bpy.ops.mesh.primitive_cube_add(
+        size=max(DimX, DimY, DimZ) * 1.5,
+        enter_editmode=False,
+        align="WORLD",
+        location=(0, 0, 0),
+        scale=(1, 1, 1),
+    )
+
+    VOI = VolumeOfInterst = bpy.context.object
+    VOI.name = "VOI"
+    VOI.display_type = "WIRE"
+    return VOI
+
+def AddNode(nodes, type, name):
+
+    node = nodes.new(type)
+    node.name = name
+    # node.location[0] -= 200
+
+    return node
+    
+def AddOcclusalPoint(name, color, CollName=None):
+
+    loc = bpy.context.scene.cursor.location
+    bpy.ops.mesh.primitive_uv_sphere_add(radius=1.2, location=loc)
+    P = bpy.context.object
+    P.name = name
+    P.data.name = name + "_mesh"
+
+    if CollName:
+        MoveToCollection(P, CollName)
+
+    matName = f"{name}_Mat"
+    mat = bpy.data.materials.get(matName) or bpy.data.materials.new(matName)
+    mat.diffuse_color = color
+    mat.use_nodes = True
+    P.active_material = mat
+    P.show_name = True
+    return P
+
+def PointsToOcclusalPlane(ctx,Model, R_pt,A_pt,L_pt,color,subdiv) :
+    
+    Dim = max(Model.dimensions)*1.2
+    
+    Rco = R_pt.location
+    Aco = A_pt.location
+    Lco = L_pt.location
+
+    Center = (Rco+Aco+Lco)/3
+
+    
+    Z = (Rco-Center).cross((Aco-Center)).normalized()
+    X = Z.cross((Aco-Center)).normalized()
+    Y = Z.cross(X).normalized()
+
+    Mtx = Matrix((X, Y, Z)).to_4x4().transposed()
+    Mtx.translation = Center
+
+    bpy.ops.mesh.primitive_plane_add(ctx,size=Dim)
+    OcclusalPlane = bpy.context.object
+    name = "Occlusal_Plane"
+    OcclusalPlane.name = name
+    OcclusalPlane.data.name = f"{name}_Mesh"
+    OcclusalPlane.matrix_world = Mtx
+
+    matName = f"{name}_Mat"
+    mat = bpy.data.materials.get(matName) or bpy.data.materials.new(matName)
+    mat.diffuse_color = color
+    mat.use_nodes = True
+    OcclusalPlane.active_material = mat
+    if subdiv :
+        bpy.ops.object.mode_set(mode='EDIT')
+        bpy.ops.mesh.subdivide(number_cuts=50)
+        bpy.ops.object.mode_set(mode='OBJECT')
+
+    return OcclusalPlane
+
+##############################################
+def TriPlanes_Point_Intersect(P1, P2, P3, CrossLenght) :
+
+    P1N = P1.matrix_world.to_3x3() @ P1.data.polygons[0].normal
+    P2N = P2.matrix_world.to_3x3() @ P2.data.polygons[0].normal
+    P3N = P3.matrix_world.to_3x3() @ P3.data.polygons[0].normal
+
+    Condition = (np.dot( np.array(P1N), np.cross(np.array(P2N), np.array(P3N)) ) != 0)
+
+    C1, C2, C3 = P1.location , P2.location , P3.location
+
+    F1 = sum(list(P1.location * P1N))
+    F2 = sum(list(P2.location * P2N))
+    F3 = sum(list(P3.location * P3N))
+
+
+    #print(Matrix((P1N,P2N,P3N)))
+    if Condition :
+        
+        P_Intersect = Matrix((P1N,P2N,P3N)).inverted() @ Vector((F1, F2, F3))
+        P1P2_Vec = Vector( np.cross(np.array(P1N), np.array(P2N)) ).normalized()*CrossLenght
+        P2P3_Vec = Vector( np.cross(np.array(P2N), np.array(P3N)) ).normalized()*CrossLenght
+        P1P3_Vec = Vector( np.cross(np.array(P1N), np.array(P3N)) ).normalized()*CrossLenght
+
+        P1P2 = [ P_Intersect + P1P2_Vec, P_Intersect - P1P2_Vec]
+        P2P3 = [ P_Intersect + P2P3_Vec, P_Intersect - P2P3_Vec]
+        P1P3 = [ P_Intersect + P1P3_Vec, P_Intersect - P1P3_Vec]
+
+        return P_Intersect, P1P2, P2P3 , P1P3
+    else :
+        return None
+
+###########################################################   
+def AddPlaneMesh(DimX, DimY, Name):
+    x = DimX / 2
+    y = DimY / 2
+    verts = [(-x, -y, 0.0), (x, -y, 0.0), (-x, y, 0.0), (x, y, 0.0)]
+    faces = [(0, 1, 3, 2)]
+    mesh_data = bpy.data.meshes.new(f"{Name}_mesh")
+    mesh_data.from_pydata(verts, [], faces)
+    uvs = mesh_data.uv_layers.new(name=f"{Name}_uv")
+    # Returns True if any invalid geometry was removed.
+    corrections = mesh_data.validate(verbose=True, clean_customdata=True)
+    # Load BMesh with mesh data.
+    bm = bmesh.new()
+    bm.from_mesh(mesh_data)
+    bm.to_mesh(mesh_data)
+    bm.free()
+    mesh_data.update(calc_edges=True, calc_edges_loose=True)
+
+    return mesh_data
+
+def AddPlaneObject(Name, mesh, CollName):
+    Plane_obj = bpy.data.objects.new(Name, mesh)
+    MyColl = bpy.data.collections.get(CollName)
+
+    if not MyColl:
+        MyColl = bpy.data.collections.new(CollName)
+
+    if not MyColl in bpy.context.scene.collection.children[:] :
+        bpy.context.scene.collection.children.link(MyColl)
+
+    if not Plane_obj in MyColl.objects[:]:
+        MyColl.objects.link(Plane_obj)
+
+    return Plane_obj
+
+def MoveToCollection(obj, CollName):
+
+    OldColl = obj.users_collection  # list of all collection the obj is in
+    NewColl = bpy.data.collections.get(CollName)
+    if not NewColl:
+        NewColl = bpy.data.collections.new(CollName)
+        bpy.context.scene.collection.children.link(NewColl)
+    if not obj in NewColl.objects[:]:
+        NewColl.objects.link(obj)  # link obj to scene
+    if OldColl:
+        for Coll in OldColl:  # unlink from all  precedent obj collections
+            if Coll is not NewColl:
+                Coll.objects.unlink(obj)
+
+@persistent
+def BDENTAL_TresholdUpdate(scene):
+    
+    CtVolumeList = [obj for obj in bpy.context.scene.objects if (obj.name.startswith("BD") and obj.name.endswith("_CTVolume")) ]
+    if CtVolumeList :
+        BDENTAL_Props = bpy.context.scene.BDENTAL_Props
+        GpShader = BDENTAL_Props.GroupNodeName
+        Active_Obj = bpy.context.view_layer.objects.active
+        if Active_Obj and Active_Obj in CtVolumeList :
+            # print("Treshold Update trigred!")
+            Vol = Active_Obj
+            Preffix = Vol.name[:5]
+            GpNode = bpy.data.node_groups.get(f"{Preffix}_{GpShader}")
+
+            if GpShader == "VGS_Marcos_modified":
+                Low_Treshold = GpNode.nodes["Low_Treshold"].outputs[0]
+                BDENTAL_Props.Treshold = Low_Treshold.default_value
+            if GpShader == "VGS_Dakir_01":
+                DcmInfo = eval(BDENTAL_Props.DcmInfo)
+                Wmin = DcmInfo["Wmin"]
+                Wmax = DcmInfo["Wmax"]
+                treshramp = GpNode.nodes["TresholdRamp"].color_ramp.elements[0]
+                BDENTAL_Props.Treshold = treshramp.default_value*(Wmax-Wmin) + Wmin 
+            
+
+
+def VolumeRender(DcmInfo, GpShader, ShadersBlendFile):
+
+    BDENTAL_Props = bpy.context.scene.BDENTAL_Props
+
+    CtVolumeList = [obj for obj in bpy.context.scene.objects if "BDENTAL_CTVolume_" in obj.name]
+    Preffix = DcmInfo["Preffix"]
+
+    Sp = Spacing = DcmInfo["RenderSp"]
+    Sz = Size = DcmInfo["RenderSz"]
+    Origin = DcmInfo["Origin"]
+    Direction = DcmInfo["Direction"]
+    TransformMatrix = DcmInfo["TransformMatrix"]
+    DimX, DimY, DimZ = (Sz[0] * Sp[0], Sz[1] * Sp[1], Sz[2] * Sp[2])
+    Offset = Sp[2]
+    # ImagesList = sorted(os.listdir(PngDir))
+    ImagesNamesList = sorted([img.name for img in bpy.data.images if img.name.startswith(Preffix)])
+    ImagesList = [bpy.data.images[Name] for Name in ImagesNamesList]
+    #################################################################################
+    Start = Tcounter()
+    #################################################################################
+    # ///////////////////////////////////////////////////////////////////////////#
+    ######################## Set Render settings : #############################
+    Scene_Settings()
+    ###################### Change to ORTHO persp with nice view angle :##########
+    # ViewMatrix = Matrix(
+    #     (
+    #         (0.8435, -0.5371, -0.0000, 1.2269),
+    #         (0.2497, 0.3923, 0.8853, -15.1467),
+    #         (-0.4755, -0.7468, 0.4650, -55.2801),
+    #         (0.0000, 0.0000, 0.0000, 1.0000),
+    #     )
+    # )
+    ViewMatrix = Matrix(
+        (
+            (0.8677, -0.4971, 0.0000, 4.0023),
+            (0.4080, 0.7123, 0.5711, -14.1835),
+            (-0.2839, -0.4956, 0.8209, -94.0148),
+            (0.0000, 0.0000, 0.0000, 1.0000),
+        )
+    )
+    for scr in bpy.data.screens:
+        # if scr.name in ["Layout", "Scripting", "Shading"]:
+        for area in [ar for ar in scr.areas if ar.type == "VIEW_3D"]:
+            for space in [sp for sp in area.spaces if sp.type == "VIEW_3D"]:
+                r3d = space.region_3d
+                r3d.view_perspective = "ORTHO"
+                r3d.view_distance = 400
+                r3d.view_matrix = ViewMatrix
+                r3d.update()
+
+    ################### Load all PNG images : ###############################
+    # for ImagePNG in ImagesList:
+    #     image_path = join(PngDir, ImagePNG)
+    #     bpy.data.images.load(image_path)
+
+    # bpy.ops.file.pack_all()
+
+    ###############################################################################################
+    # Add Planes with textured material :
+    ###############################################################################################
+    PlansList = []
+    ############################# START LOOP ##################################
+
+    for i, ImageData in enumerate(ImagesList):
+        # # Add Plane :
+        # ##########################################
+        Name = f"{Preffix}_PLANE_{i}"
+        mesh = AddPlaneMesh(DimX, DimY, Name)
+        CollName = "CT_Voxel"
+
+        obj = AddPlaneObject(Name, mesh, CollName)
+        obj.location[2] = i * Offset
+        PlansList.append(obj)
+
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+
+        # bpy.ops.object.mode_set(mode="EDIT")
+        # bpy.ops.mesh.select_all(action="SELECT")
+        # # bpy.ops.mesh.extrude_region_move(TRANSFORM_OT_translate={"value":(0, 0, Offset),"constraint_axis":(False, False, True)})
+        # bpy.ops.mesh.subdivide(number_cuts=9)
+        # bpy.ops.mesh.select_all(action="DESELECT")
+        # bpy.ops.mesh.select_non_manifold()
+        # bpy.ops.mesh.select_all(action='INVERT')
+       
+        # bpy.ops.mesh.select_nth(offset=1)
+
+        # bpy.ops.object.mode_set(mode="OBJECT")
+        # for v in obj.data.vertices :
+        #     if v.select :
+        #         v.co[2] = Offset-0.01
+
+        ##########################################
+        # Add Material :
+        mat = bpy.data.materials.new(f"{Preffix}_Voxelmat_{i}")
+        mat.use_nodes = True
+        node_tree = mat.node_tree
+        nodes = node_tree.nodes
+        links = node_tree.links
+
+        for node in nodes:
+            if node.type != "OUTPUT_MATERIAL":
+                nodes.remove(node)
+
+        # ImageData = bpy.data.images.get(ImagePNG)
+        TextureCoord = AddNode(
+            nodes, type="ShaderNodeTexCoord", name="TextureCoord"
+        )
+        ImageTexture = AddNode(
+            nodes, type="ShaderNodeTexImage", name="Image Texture"
+        )
+
+        ImageTexture.image = ImageData
+        ImageData.colorspace_settings.name = "Non-Color"
+
+        materialOutput = nodes["Material Output"]
+
+        links.new(TextureCoord.outputs[0], ImageTexture.inputs[0])
+
+        # Load VGS Group Node :
+        VGS = bpy.data.node_groups.get(f"{Preffix}_{GpShader}")
+        if not VGS:
+            filepath = join(ShadersBlendFile, "NodeTree", GpShader)
+            directory = join(ShadersBlendFile, "NodeTree")
+            filename = GpShader
+            bpy.ops.wm.append(
+                filepath=filepath, filename=filename, directory=directory
+            )
+            VGS = bpy.data.node_groups.get(GpShader)
+            VGS.name = f"{Preffix}_{GpShader}"
+            VGS = bpy.data.node_groups.get(f"{Preffix}_{GpShader}")
+
+        GroupNode = nodes.new("ShaderNodeGroup")
+        GroupNode.node_tree = VGS
+
+        links.new(ImageTexture.outputs["Color"], GroupNode.inputs[0])
+        links.new(GroupNode.outputs[0], materialOutput.inputs["Surface"])
+        for slot in obj.material_slots:
+            bpy.ops.object.material_slot_remove()
+
+        obj.active_material = mat
+
+        mat.blend_method = "HASHED"
+        mat.shadow_method = "HASHED"
+
+        # print(f"{ImagePNG} Processed ...")
+        # bpy.ops.wm.redraw_timer(type="DRAW_SWAP", iterations=3)  # --Work good but Slow down volume Render
+
+        ############################# END LOOP ##################################
+
+    # Join Planes Make Cube Voxel :
+    bpy.ops.object.select_all(action="DESELECT")
+    for obj in PlansList:
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+    bpy.context.view_layer.layer_collection.children["CT_Voxel"].hide_viewport = False
+    bpy.ops.object.join()
+
+    Voxel = bpy.context.object
+    
+    Voxel.name = f"{Preffix}_CTVolume"
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
+
+    Voxel.matrix_world = TransformMatrix
+    Override, area3D, space3D = CtxOverride(bpy.context)
+    # for area in bpy.context.screen.areas:
+    #     if area.type == "VIEW_3D":
+    #         area3D = area
+    #         for space in area3D.spaces:
+    #             if space.type == "VIEW_3D":
+    #                 space3D = space
+    #                 break
+    #         for region in area3D.regions:
+    #             if region.type == "WINDOW":
+    #                 r3D = region
+    #                 break
+    # override = bpy.context.copy()
+    # override["area"] = area3D
+    # override["space_data"] = space3D
+    # override["region"] = r3D
+    bpy.ops.view3d.view_selected(Override, use_all_regions=False)
+
+    for scr in bpy.data.screens:
+        # if scr.name in ["Layout", "Scripting", "Shading"]:
+        for area in [ar for ar in scr.areas if ar.type == "VIEW_3D"]:
+            for space in [sp for sp in area.spaces if sp.type == "VIEW_3D"]:
+                space.shading.type = "MATERIAL"
+
+    for i in range(3):
+        Voxel.lock_location[i] = True
+        Voxel.lock_rotation[i] = True
+        Voxel.lock_scale[i] = True
+
+    Finish = Tcounter()
+    print(f"CT-Scan loaded in {Finish-Start} secondes")
+
+def Scene_Settings():
+    # Set World Shader node :
+    WorldNodes = bpy.data.worlds["World"].node_tree.nodes
+    WColor = WorldNodes["Background"].inputs[0].default_value = (0.6, 0.6, 0.6, 0.6)
+    WStrength = WorldNodes["Background"].inputs[1].default_value = 1.5
+
+    Override, area3D, space3D = CtxOverride(bpy.context)
+    # scene shading lights
+    
+    # 3DView Shading Methode : in {'WIREFRAME', 'SOLID', 'MATERIAL', 'RENDERED'}
+    space3D.shading.type = "MATERIAL"
+
+    # 'Material' Shading Light method :
+    space3D.shading.use_scene_lights = True
+    space3D.shading.use_scene_world = False
+
+    # 'RENDERED' Shading Light method :
+    space3D.shading.use_scene_lights_render = False
+    space3D.shading.use_scene_world_render = True
+
+    space3D.shading.studio_light = "forest.exr"
+    space3D.shading.studiolight_rotate_z = 0
+    space3D.shading.studiolight_intensity = 1.5
+    space3D.shading.studiolight_background_alpha = 0.0
+    space3D.shading.studiolight_background_blur = 0.0
+
+    space3D.shading.render_pass = "COMBINED"
+
+    space3D.shading.type = "SOLID"
+
+    # Override, area3D, space3D = CtxOverride(bpy.context)
+    space3D.shading.color_type = "TEXTURE"
+    # space.shading.light = "MATCAP"
+    # space.shading.studio_light = "basic_side.exr"
+    space3D.shading.light = "STUDIO"
+    space3D.shading.studio_light = "outdoor.sl"
+    space3D.shading.show_cavity = True
+    space3D.shading.curvature_ridge_factor = 0.5
+    space3D.shading.curvature_valley_factor = 0.5
+
+    scn = bpy.context.scene
+    scn.render.engine = "BLENDER_EEVEE"
+    scn.eevee.use_gtao = True
+    scn.eevee.gtao_distance = 15
+    scn.eevee.gtao_factor = 2.0
+    scn.eevee.gtao_quality = 0.4
+    scn.eevee.use_gtao_bounce = True
+    scn.eevee.use_gtao_bent_normals = True
+    scn.eevee.shadow_cube_size = "512"
+    scn.eevee.shadow_cascade_size = "512"
+    scn.eevee.use_soft_shadows = True
+    scn.eevee.taa_samples = 16
+    scn.display_settings.display_device = "None"
+    scn.view_settings.look = "Medium Low Contrast"
+    scn.view_settings.exposure = 0.0
+    scn.view_settings.gamma = 1.0
+    scn.eevee.use_ssr = True
+
+#################################################################################################
+# Add Slices :
+#################################################################################################
+@persistent
+def AxialSliceUpdate(scene):
+    Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_AXIAL_SLICE")) ]
+    if Planes :
+        BDENTAL_Props = scene.BDENTAL_Props
+        Plane = bpy.context.view_layer.objects.active
+        Condition1 = Plane in Planes
+        if Condition1 :
+            Preffix = Plane.name[2:7]
+            DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
+            DcmInfo = DcmInfoDict[Preffix]
+            ImageData = AbsPath(DcmInfo["Nrrd255Path"])
+
+            Condition2 = exists(ImageData)
+
+            if Condition2 :
+
+                SlicesDir = AbsPath(DcmInfo["SlicesDir"])
+                TransformMatrix = DcmInfo["TransformMatrix"]
+                ImageName = f"{Plane.name}.png"
+                ImagePath = join(SlicesDir, ImageName)
+
+                #########################################
+                #########################################
+                # Get ImageData Infos :
+                Image3D_255 = sitk.ReadImage(ImageData)
+                Sp = Spacing = Image3D_255.GetSpacing()
+                Sz = Size = Image3D_255.GetSize()
+                Ortho_Origin = -0.5 * np.array(Sp) * (np.array(Sz) - np.array((1, 1, 1)))
+                Image3D_255.SetOrigin(Ortho_Origin)
+                Image3D_255.SetDirection(np.identity(3).flatten())
+                
+                # Output Parameters :
+                Out_Origin = [Ortho_Origin[0], Ortho_Origin[1], 0]
+                Out_Direction = Vector(np.identity(3).flatten())
+                Out_Size = (Sz[0], Sz[1], 1)
+                Out_Spacing = Sp
+
+                ######################################
+                # Get Plane Orientation and location :
+                PlanMatrix = TransformMatrix.inverted() @ Plane.matrix_world
+                Rot = PlanMatrix.to_euler()
+                Trans = PlanMatrix.translation
+                Rvec = (Rot.x, Rot.y, Rot.z)
+                Tvec = Trans
+
+                ##########################################
+                # Euler3DTransform :
+                Euler3D = sitk.Euler3DTransform()
+                Euler3D.SetCenter((0, 0, 0))
+                Euler3D.SetRotation(Rvec[0], Rvec[1], Rvec[2])
+                Euler3D.SetTranslation(Tvec)
+                Euler3D.ComputeZYXOn()
+                #########################################
+
+                Image2D = sitk.Resample(
+                    Image3D_255,
+                    Out_Size,
+                    Euler3D,
+                    sitk.sitkLinear,
+                    Out_Origin,
+                    Out_Spacing,
+                    Out_Direction,
+                    0,
+                )
+                #############################################
+                # Write Image :
+                Array = sitk.GetArrayFromImage(Image2D)
+                Flipped_Array = np.flipud(Array.reshape(Array.shape[1], Array.shape[2]))
+                cv2.imwrite(ImagePath, Flipped_Array)
+                #############################################
+                # Update Blender Image data :
+                BlenderImage = bpy.data.images.get(f"{Plane.name}.png")
+                if not BlenderImage:
+                    bpy.data.images.load(ImagePath)
+                    BlenderImage = bpy.data.images.get(f"{Plane.name}.png")
+                else :
+                    BlenderImage.filepath = ImagePath
+                    BlenderImage.reload()
+
+@persistent
+def CoronalSliceUpdate(scene):
+    
+    Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_CORONAL_SLICE"))]
+
+    if Planes :
+        BDENTAL_Props = scene.BDENTAL_Props
+        Plane = bpy.context.view_layer.objects.active
+        Condition1 = Plane in Planes
+        if Condition1 :
+            Preffix = Plane.name[2:7]
+            DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
+            DcmInfo = DcmInfoDict[Preffix]
+            ImageData = AbsPath(DcmInfo["Nrrd255Path"])
+
+            Condition2 = exists(ImageData)
+
+            if Condition2 :
+
+                SlicesDir = AbsPath(DcmInfo["SlicesDir"])
+                TransformMatrix = DcmInfo["TransformMatrix"]
+                ImageName = f"{Plane.name}.png"
+                ImagePath = join(SlicesDir, ImageName)
+
+                #########################################
+                #########################################
+                # Get ImageData Infos :
+                Image3D_255 = sitk.ReadImage(ImageData)
+                Sp = Spacing = Image3D_255.GetSpacing()
+                Sz = Size = Image3D_255.GetSize()
+                Ortho_Origin = -0.5 * np.array(Sp) * (np.array(Sz) - np.array((1, 1, 1)))
+                Image3D_255.SetOrigin(Ortho_Origin)
+                Image3D_255.SetDirection(np.identity(3).flatten())
+                
+                # Output Parameters :
+                Out_Origin = [Ortho_Origin[0], Ortho_Origin[1], 0]
+                Out_Direction = Vector(np.identity(3).flatten())
+                Out_Size = (Sz[0], Sz[1], 1)
+                Out_Spacing = Sp
+
+                ######################################
+                # Get Plane Orientation and location :
+                PlanMatrix = TransformMatrix.inverted() @ Plane.matrix_world
+                Rot = PlanMatrix.to_euler()
+                Trans = PlanMatrix.translation
+                Rvec = (Rot.x, Rot.y, Rot.z)
+                Tvec = Trans
+
+                ##########################################
+                # Euler3DTransform :
+                Euler3D = sitk.Euler3DTransform()
+                Euler3D.SetCenter((0, 0, 0))
+                Euler3D.SetRotation(Rvec[0], Rvec[1], Rvec[2])
+                Euler3D.SetTranslation(Tvec)
+                Euler3D.ComputeZYXOn()
+                #########################################
+
+                Image2D = sitk.Resample(
+                    Image3D_255,
+                    Out_Size,
+                    Euler3D,
+                    sitk.sitkLinear,
+                    Out_Origin,
+                    Out_Spacing,
+                    Out_Direction,
+                    0,
+                )
+                #############################################
+                # Write Image :
+                Array = sitk.GetArrayFromImage(Image2D)
+                Flipped_Array = np.flipud(Array.reshape(Array.shape[1], Array.shape[2]))
+                cv2.imwrite(ImagePath, Flipped_Array)
+                #############################################
+                # Update Blender Image data :
+                BlenderImage = bpy.data.images.get(f"{Plane.name}.png")
+                if not BlenderImage:
+                    bpy.data.images.load(ImagePath)
+                    BlenderImage = bpy.data.images.get(f"{Plane.name}.png")
+                else :
+                    BlenderImage.filepath = ImagePath
+                    BlenderImage.reload()
+
+@persistent
+def SagitalSliceUpdate(scene):
+
+    Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SAGITAL_SLICE"))]
+
+    if Planes :
+        BDENTAL_Props = scene.BDENTAL_Props
+        Plane = bpy.context.view_layer.objects.active
+        Condition1 = Plane in Planes
+        if Condition1 :
+            Preffix = Plane.name[2:7]
+            DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
+            DcmInfo = DcmInfoDict[Preffix]
+            ImageData = AbsPath(DcmInfo["Nrrd255Path"])
+
+            Condition2 = exists(ImageData)
+
+            if Condition2 :
+
+                SlicesDir = AbsPath(DcmInfo["SlicesDir"])
+                TransformMatrix = DcmInfo["TransformMatrix"]
+                ImageName = f"{Plane.name}.png"
+                ImagePath = join(SlicesDir, ImageName)
+
+                #########################################
+                #########################################
+                # Get ImageData Infos :
+                Image3D_255 = sitk.ReadImage(ImageData)
+                Sp = Spacing = Image3D_255.GetSpacing()
+                Sz = Size = Image3D_255.GetSize()
+                Ortho_Origin = -0.5 * np.array(Sp) * (np.array(Sz) - np.array((1, 1, 1)))
+                Image3D_255.SetOrigin(Ortho_Origin)
+                Image3D_255.SetDirection(np.identity(3).flatten())
+                
+                # Output Parameters :
+                Out_Origin = [Ortho_Origin[0], Ortho_Origin[1], 0]
+                Out_Direction = Vector(np.identity(3).flatten())
+                Out_Size = (Sz[0], Sz[1], 1)
+                Out_Spacing = Sp
+
+
+                ######################################
+                # Get Plane Orientation and location :
+                PlanMatrix = TransformMatrix.inverted() @ Plane.matrix_world
+                Rot = PlanMatrix.to_euler()
+                Trans = PlanMatrix.translation
+                Rvec = (Rot.x, Rot.y, Rot.z)
+                Tvec = Trans
+
+                ##########################################
+                # Euler3DTransform :
+                Euler3D = sitk.Euler3DTransform()
+                Euler3D.SetCenter((0, 0, 0))
+                Euler3D.SetRotation(Rvec[0], Rvec[1], Rvec[2])
+                Euler3D.SetTranslation(Tvec)
+                Euler3D.ComputeZYXOn()
+                #########################################
+
+                Image2D = sitk.Resample(
+                    Image3D_255,
+                    Out_Size,
+                    Euler3D,
+                    sitk.sitkLinear,
+                    Out_Origin,
+                    Out_Spacing,
+                    Out_Direction,
+                    0,
+                )
+                #############################################
+                # Write Image :
+                Array = sitk.GetArrayFromImage(Image2D)
+                Flipped_Array = np.flipud(Array.reshape(Array.shape[1], Array.shape[2]))
+                cv2.imwrite(ImagePath, Flipped_Array)
+                #############################################
+                # Update Blender Image data :
+                BlenderImage = bpy.data.images.get(f"{Plane.name}.png")
+                if not BlenderImage:
+                    bpy.data.images.load(ImagePath)
+                    BlenderImage = bpy.data.images.get(f"{Plane.name}.png")
+                else :
+                    BlenderImage.filepath = ImagePath
+                    BlenderImage.reload()
+
+####################################################################
+def AddAxialSlice(Preffix, DcmInfo):
+    
+    name = f"1_{Preffix}_AXIAL_SLICE"
+    Sp, Sz, Origin, Direction, VC = (
+        DcmInfo["Spacing"],
+        DcmInfo["Size"],
+        DcmInfo["Origin"],
+        DcmInfo["Direction"],
+        DcmInfo["VolumeCenter"],
+    )
+
+    DimX, DimY, DimZ = (Sz[0] * Sp[0], Sz[1] * Sp[1], Sz[2] * Sp[2])
+
+    # Remove old Slices and their data meshs :
+    OldSlices = [obj for obj in bpy.context.view_layer.objects if name in obj.name]
+    OldSliceMeshs = [mesh for mesh in bpy.data.meshes if name in mesh.name]
+
+    for obj in OldSlices:
+        bpy.data.objects.remove(obj)
+    for mesh in OldSliceMeshs:
+        bpy.data.meshes.remove(mesh)
+
+    # Add AXIAL :
+    bpy.ops.mesh.primitive_plane_add()
+    AxialPlane = bpy.context.active_object
+    AxialPlane.name = name
+    AxialPlane.data.name = f"{name}_mesh"
+    AxialPlane.rotation_mode = "XYZ"
+    AxialDims = Vector((DimX, DimY, 0.0))
+    AxialPlane.dimensions = AxialDims
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    AxialPlane.location = VC
+    # Add Material :
+    mat = bpy.data.materials.get(f"{name}_mat") or bpy.data.materials.new(
+        f"{name}_mat"
+    )
+
+    for slot in AxialPlane.material_slots:
+        bpy.ops.object.material_slot_remove()
+    bpy.ops.object.material_slot_add()
+    AxialPlane.active_material = mat
+
+    mat.use_nodes = True
+    node_tree = mat.node_tree
+    nodes = node_tree.nodes
+    links = node_tree.links
+
+    for node in nodes:
+        if node.type != "OUTPUT_MATERIAL":
+            nodes.remove(node)
+    SlicesDir = AbsPath(bpy.context.scene.BDENTAL_Props.SlicesDir)
+    ImageName = f"{name}.png"
+    ImagePath = join(SlicesDir, ImageName)
+
+    # write "1_AXIAL_SLICE.png" to here ImagePath
+    AxialSliceUpdate(bpy.context.scene)
+
+    BlenderImage = bpy.data.images.get(ImageName) or bpy.data.images.load(ImagePath)
+
+    TextureCoord = AddNode(nodes, type="ShaderNodeTexCoord", name="TextureCoord")
+    ImageTexture = AddNode(nodes, type="ShaderNodeTexImage", name="Image Texture")
+    print(ImageTexture)
+    ImageTexture.image = BlenderImage
+    BlenderImage.colorspace_settings.name = "Non-Color"
+    materialOutput = nodes["Material Output"]
+    links.new(TextureCoord.outputs[0], ImageTexture.inputs[0])
+    links.new(ImageTexture.outputs[0], materialOutput.inputs[0])
+    bpy.context.scene.transform_orientation_slots[0].type = "LOCAL"
+    bpy.context.scene.transform_orientation_slots[1].type = "LOCAL"
+    bpy.ops.wm.tool_set_by_id(name="builtin.move")
+
+    post_handlers = bpy.app.handlers.depsgraph_update_post
+    [
+        post_handlers.remove(h)
+        for h in post_handlers
+        if h.__name__ == "AxialSliceUpdate"
+    ]
+    post_handlers.append(AxialSliceUpdate)
+    
+
+def AddCoronalSlice(Preffix, DcmInfo):
+
+    name = f"2_{Preffix}_CORONAL_SLICE"
+    Sp, Sz, Origin, Direction, VC = (
+        DcmInfo["Spacing"],
+        DcmInfo["Size"],
+        DcmInfo["Origin"],
+        DcmInfo["Direction"],
+        DcmInfo["VolumeCenter"],
+    )
+
+    DimX, DimY, DimZ = (Sz[0] * Sp[0], Sz[1] * Sp[1], Sz[2] * Sp[2])
+
+    # Remove old Slices and their data meshs :
+    OldSlices = [obj for obj in bpy.context.view_layer.objects if name in obj.name]
+    OldSliceMeshs = [mesh for mesh in bpy.data.meshes if name in mesh.name]
+
+    for obj in OldSlices:
+        bpy.data.objects.remove(obj)
+    for mesh in OldSliceMeshs:
+        bpy.data.meshes.remove(mesh)
+
+    # Add CORONAL :
+    bpy.ops.mesh.primitive_plane_add()
+    CoronalPlane = bpy.context.active_object
+    CoronalPlane.name = name
+    CoronalPlane.data.name = f"{name}_mesh"
+    CoronalPlane.rotation_mode = "XYZ"
+    CoronalDims = Vector((DimX, DimY, 0.0))
+    CoronalPlane.dimensions = CoronalDims
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    CoronalPlane.rotation_euler = Euler((pi / 2, 0.0, 0.0), "XYZ")
+    CoronalPlane.location = VC
+    # Add Material :
+    mat = bpy.data.materials.get(f"{name}_mat") or bpy.data.materials.new(
+        f"{name}_mat"
+    )
+
+    for slot in CoronalPlane.material_slots:
+        bpy.ops.object.material_slot_remove()
+    bpy.ops.object.material_slot_add()
+    CoronalPlane.active_material = mat
+
+    mat.use_nodes = True
+    node_tree = mat.node_tree
+    nodes = node_tree.nodes
+    links = node_tree.links
+
+    for node in nodes:
+        if node.type != "OUTPUT_MATERIAL":
+            nodes.remove(node)
+    SlicesDir = AbsPath(bpy.context.scene.BDENTAL_Props.SlicesDir)
+    ImageName = f"{name}.png"
+    ImagePath = join(SlicesDir, ImageName)
+
+    # write "2_CORONAL_SLICE.png" to here ImagePath
+    CoronalSliceUpdate(bpy.context.scene)
+
+    BlenderImage = bpy.data.images.get(ImageName) or bpy.data.images.load(ImagePath)
+
+    TextureCoord = AddNode(nodes, type="ShaderNodeTexCoord", name="TextureCoord")
+    ImageTexture = AddNode(nodes, type="ShaderNodeTexImage", name="Image Texture")
+    print(ImageTexture)
+    ImageTexture.image = BlenderImage
+    BlenderImage.colorspace_settings.name = "Non-Color"
+    materialOutput = nodes["Material Output"]
+    links.new(TextureCoord.outputs[0], ImageTexture.inputs[0])
+    links.new(ImageTexture.outputs[0], materialOutput.inputs[0])
+    bpy.context.scene.transform_orientation_slots[0].type = "LOCAL"
+    bpy.context.scene.transform_orientation_slots[1].type = "LOCAL"
+    bpy.ops.wm.tool_set_by_id(name="builtin.move")
+
+    post_handlers = bpy.app.handlers.depsgraph_update_post
+    [
+        post_handlers.remove(h)
+        for h in post_handlers
+        if h.__name__ == "CoronalSliceUpdate"
+    ]
+    post_handlers.append(CoronalSliceUpdate)
+
+def AddSagitalSlice(Preffix, DcmInfo):
+
+    name = f"3_{Preffix}_SAGITAL_SLICE"
+    Sp, Sz, Origin, Direction, VC = (
+        DcmInfo["Spacing"],
+        DcmInfo["Size"],
+        DcmInfo["Origin"],
+        DcmInfo["Direction"],
+        DcmInfo["VolumeCenter"],
+    )
+
+    DimX, DimY, DimZ = (Sz[0] * Sp[0], Sz[1] * Sp[1], Sz[2] * Sp[2])
+
+    # Remove old Slices and their data meshs :
+    OldSlices = [obj for obj in bpy.context.view_layer.objects if name in obj.name]
+    OldSliceMeshs = [mesh for mesh in bpy.data.meshes if name in mesh.name]
+
+    for obj in OldSlices:
+        bpy.data.objects.remove(obj)
+    for mesh in OldSliceMeshs:
+        bpy.data.meshes.remove(mesh)
+
+    # Add SAGITAL :
+    bpy.ops.mesh.primitive_plane_add()
+    SagitalPlane = bpy.context.active_object
+    SagitalPlane.name = name
+    SagitalPlane.data.name = f"{name}_mesh"
+    SagitalPlane.rotation_mode = "XYZ"
+    SagitalDims = Vector((DimX, DimY, 0.0))
+    SagitalPlane.dimensions = SagitalDims
+    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+    SagitalPlane.rotation_euler = Euler((pi / 2, 0.0, pi / 2), "XYZ")
+    SagitalPlane.location = VC
+    # Add Material :
+    mat = bpy.data.materials.get(f"{name}_mat") or bpy.data.materials.new(
+        f"{name}_mat"
+    )
+
+    for slot in SagitalPlane.material_slots:
+        bpy.ops.object.material_slot_remove()
+    bpy.ops.object.material_slot_add()
+    SagitalPlane.active_material = mat
+
+    mat.use_nodes = True
+    node_tree = mat.node_tree
+    nodes = node_tree.nodes
+    links = node_tree.links
+
+    for node in nodes:
+        if node.type != "OUTPUT_MATERIAL":
+            nodes.remove(node)
+    SlicesDir = AbsPath(bpy.context.scene.BDENTAL_Props.SlicesDir)
+    ImageName = f"{name}.png"
+    ImagePath = join(SlicesDir, ImageName)
+
+    # write "3_SAGITAL_SLICE.png" to here ImagePath
+    SagitalSliceUpdate(bpy.context.scene)
+
+    BlenderImage = bpy.data.images.get(ImageName) or bpy.data.images.load(ImagePath)
+
+    TextureCoord = AddNode(nodes, type="ShaderNodeTexCoord", name="TextureCoord")
+    ImageTexture = AddNode(nodes, type="ShaderNodeTexImage", name="Image Texture")
+    print(ImageTexture)
+    ImageTexture.image = BlenderImage
+    BlenderImage.colorspace_settings.name = "Non-Color"
+    materialOutput = nodes["Material Output"]
+    links.new(TextureCoord.outputs[0], ImageTexture.inputs[0])
+    links.new(ImageTexture.outputs[0], materialOutput.inputs[0])
+    bpy.context.scene.transform_orientation_slots[0].type = "LOCAL"
+    bpy.context.scene.transform_orientation_slots[1].type = "LOCAL"
+    bpy.ops.wm.tool_set_by_id(name="builtin.move")
+
+    post_handlers = bpy.app.handlers.depsgraph_update_post
+    [
+        post_handlers.remove(h)
+        for h in post_handlers
+        if h.__name__ == "SagitalSliceUpdate"
+    ]
+    post_handlers.append(SagitalSliceUpdate)
+
+#############################################################################
+# SimpleITK vtk Image to Mesh Functions :
+#############################################################################
+def HuTo255(Hu, Wmin, Wmax):
+    V255 = int(((Hu - Wmin) / (Wmax - Wmin)) * 255)
+    return V255
+
+def ResizeImage(sitkImage, Ratio):
+    image = sitkImage
+    Sz = image.GetSize()
+    Sp = image.GetSpacing()
+    new_size = [int(Sz[0] * Ratio), int(Sz[1] * Ratio), int(Sz[2] * Ratio)]
+    new_spacing = [Sp[0] / Ratio, Sp[1] / Ratio, Sp[2] / Ratio]
+
+    ResizedImage = sitk.Resample(
+        image,
+        new_size,
+        sitk.Transform(),
+        sitk.sitkLinear,
+        image.GetOrigin(),
+        new_spacing,
+        image.GetDirection(),
+        0,
+    )
+    return ResizedImage
+
+# def VTK_Terminal_progress(caller, event, q):
+#     ProgRatio = round(float(caller.GetProgress()), 2)
+#     q.put(
+#         ["loop", f"PROGRESS : {step} processing...", "", {start}, {finish}, ProgRatio]
+#     )
+
+def VTKprogress(caller, event):
+    pourcentage = int(caller.GetProgress() * 100)
+    calldata = str(int(caller.GetProgress() * 100)) + " %"
+    # print(calldata)
+    sys.stdout.write(f"\r {calldata}")
+    sys.stdout.flush()
+    progress_bar(pourcentage, Delay=1)
+
+def TerminalProgressBar(
+    q,
+    counter_start,
+    iter=100,
+    maxfill=20,
+    symb1="\u2588",
+    symb2="\u2502",
+    periode=10,
+):
+
+    if sys.platform == "win32":
+        sys.stdout.reconfigure(encoding="cp65001")
+        # cmd = "chcp 65001 & set PYTHONIOENCODING=utf-8"
+        # subprocess.call(cmd, shell=True)
+
+    print("\n")
+
+    while True:
+        if not q.empty():
+            signal = q.get()
+
+            if "End" in signal[0]:
+                finish = Tcounter()
+                line = f"{symb1*maxfill}  100% Finished.------Total Time : {round(finish-counter_start,2)}"
+                # clear sys.stdout line and return to line start:
+                # sys.stdout.write("\r")
+                # sys.stdout.write(" " * 100)
+                # sys.stdout.flush()
+                # sys.stdout.write("\r")
+                # write line :
+                sys.stdout.write("\r" + " " * 80 + "\r" + line)  # f"{Char}"*i*2
+                sys.stdout.flush()
+                break
+
+            if "GuessTime" in signal[0]:
+                _, Uptxt, Lowtxt, start, finish, periode = signal
+                for i in range(iter):
+
+                    if q.empty():
+
+                        ratio = start + (((i + 1) / iter) * (finish - start))
+                        pourcentage = int(ratio * 100)
+                        symb1_fill = int(ratio * maxfill)
+                        symb2_fill = int(maxfill - symb1_fill)
+                        line = f"{symb1*symb1_fill}{symb2*symb2_fill}  {pourcentage}% {Uptxt}"
+                        # clear sys.stdout line and return to line start:
+                        # sys.stdout.write("\r"+" " * 80)
+                        # sys.stdout.flush()
+                        # write line :
+                        sys.stdout.write(
+                            "\r" + " " * 80 + "\r" + line
+                        )  # f"{Char}"*i*2
+                        sys.stdout.flush()
+                        sleep(periode / iter)
+                    else:
+                        break
+
+            if "loop" in signal[0]:
+                _, Uptxt, Lowtxt, start, finish, progFloat = signal
+                ratio = start + (progFloat * (finish - start))
+                pourcentage = int(ratio * 100)
+                symb1_fill = int(ratio * maxfill)
+                symb2_fill = int(maxfill - symb1_fill)
+                line = (
+                    f"{symb1*symb1_fill}{symb2*symb2_fill}  {pourcentage}% {Uptxt}"
+                )
+                # clear sys.stdout line and return to line start:
+                # sys.stdout.write("\r")
+                # sys.stdout.write(" " * 100)
+                # sys.stdout.flush()
+                # sys.stdout.write("\r")
+                # write line :
+                sys.stdout.write("\r" + " " * 80 + "\r" + line)  # f"{Char}"*i*2
+                sys.stdout.flush()
+
+        else:
+            sleep(0.1)
+
+def sitkTovtk(sitkImage):
+    """Convert sitk image to a VTK image"""
+    sitkArray = sitk.GetArrayFromImage(sitkImage)  # .astype(np.uint8)
+    vtkImage = vtk.vtkImageData()
+
+    Sp = Spacing = sitkImage.GetSpacing()
+    Sz = Size = sitkImage.GetSize()
+
+    vtkImage.SetDimensions(Sz)
+    vtkImage.SetSpacing(Sp)
+    vtkImage.SetOrigin(0, 0, 0)
+    vtkImage.SetDirectionMatrix(1, 0, 0, 0, 1, 0, 0, 0, 1)
+    vtkImage.SetExtent(0, Sz[0] - 1, 0, Sz[1] - 1, 0, Sz[2] - 1)
+
+    VtkArray = numpy_support.numpy_to_vtk(
+        sitkArray.ravel(), deep=True, array_type=vtk.VTK_UNSIGNED_INT
+    )
+    VtkArray.SetNumberOfComponents(1)
+    vtkImage.GetPointData().SetScalars(VtkArray)
+
+    vtkImage.Modified()
+    return vtkImage
+
+def vtk_MC_Func(vtkImage, Treshold):
+    MCFilter = vtk.vtkMarchingCubes()
+    MCFilter.ComputeNormalsOn()
+    MCFilter.SetValue(0, Treshold)
+    MCFilter.SetInputData(vtkImage)
+    MCFilter.Update()
+    mesh = vtk.vtkPolyData()
+    mesh.DeepCopy(MCFilter.GetOutput())
+    return mesh
+
+def vtkMeshReduction(q, mesh, reduction, step, start, finish):
+    """Reduce a mesh using VTK's vtkQuadricDecimation filter."""
+
+    def VTK_Terminal_progress(caller, event):
+        ProgRatio = round(float(caller.GetProgress()), 2)
+        q.put(
+            [
+                "loop",
+                f"PROGRESS : {step}...",
+                "",
+                start,
+                finish,
+                ProgRatio,
+            ]
+        )
+
+    decimatFilter = vtk.vtkQuadricDecimation()
+    decimatFilter.SetInputData(mesh)
+    decimatFilter.SetTargetReduction(reduction)
+
+    decimatFilter.AddObserver(ProgEvent, VTK_Terminal_progress)
+    decimatFilter.Update()
+
+    mesh.DeepCopy(decimatFilter.GetOutput())
+    return mesh
+
+def vtkSmoothMesh(q, mesh, Iterations, step, start, finish):
+    """Smooth a mesh using VTK's vtkSmoothPolyData filter."""
+
+    def VTK_Terminal_progress(caller, event):
+        ProgRatio = round(float(caller.GetProgress()), 2)
+        q.put(
+            [
+                "loop",
+                f"PROGRESS : {step}...",
+                "",
+                start,
+                finish,
+                ProgRatio,
+            ]
+        )
+
+    SmoothFilter = vtk.vtkSmoothPolyDataFilter()
+    SmoothFilter.SetInputData(mesh)
+    SmoothFilter.SetNumberOfIterations(int(Iterations))
+    SmoothFilter.SetFeatureAngle(45)
+    SmoothFilter.SetRelaxationFactor(0.05)
+    SmoothFilter.AddObserver(ProgEvent, VTK_Terminal_progress)
+    SmoothFilter.Update()
+    mesh.DeepCopy(SmoothFilter.GetOutput())
+    return mesh
+
+def vtkTransformMesh(mesh, Matrix):
+    """Transform a mesh using VTK's vtkTransformPolyData filter."""
+
+    Transform = vtk.vtkTransform()
+    Transform.SetMatrix(Matrix)
+
+    transformFilter = vtk.vtkTransformPolyDataFilter()
+    transformFilter.SetInputData(mesh)
+    transformFilter.SetTransform(Transform)
+    transformFilter.Update()
+    mesh.DeepCopy(transformFilter.GetOutput())
+    return mesh
+
+def vtkfillholes(mesh, size):
+    FillHolesFilter = vtk.vtkFillHolesFilter()
+    FillHolesFilter.SetInputData(mesh)
+    FillHolesFilter.SetHoleSize(size)
+    FillHolesFilter.Update()
+    mesh.DeepCopy(FillHolesFilter.GetOutput())
+    return mesh
+
+def vtkCleanMesh(mesh, connectivityFilter=False):
+    """Clean a mesh using VTK's CleanPolyData filter."""
+
+    ConnectFilter = vtk.vtkPolyDataConnectivityFilter()
+    CleanFilter = vtk.vtkCleanPolyData()
+
+    if connectivityFilter:
+
+        ConnectFilter.SetInputData(mesh)
+        ConnectFilter.SetExtractionModeToLargestRegion()
+        CleanFilter.SetInputConnection(ConnectFilter.GetOutputPort())
+
+    else:
+        CleanFilter.SetInputData(mesh)
+
+    CleanFilter.Update()
+    mesh.DeepCopy(CleanFilter.GetOutput())
+    return mesh
+
+def sitkToContourArray(sitkImage, HuMin, HuMax, Wmin, Wmax, Thikness):
+    """Convert sitk image to a VTK image"""
+
+    def HuTo255(Hu, Wmin, Wmax):
+        V255 = ((Hu - Wmin) / (Wmax - Wmin)) * 255
+        return V255
+
+    Image3D_255 = sitk.Cast(
+        sitk.IntensityWindowing(
+            sitkImage,
+            windowMinimum=Wmin,
+            windowMaximum=Wmax,
+            outputMinimum=0.0,
+            outputMaximum=255.0,
+        ),
+        sitk.sitkUInt8,
+    )
+    Array = sitk.GetArrayFromImage(Image3D_255)
+    ContourArray255 = Array.copy()
+    for i in range(ContourArray255.shape[0]):
+        Slice = ContourArray255[i, :, :]
+        ret, binary = cv2.threshold(
+            Slice,
+            HuTo255(HuMin, Wmin, Wmax),
+            HuTo255(HuMax, Wmin, Wmax),
+            cv2.THRESH_BINARY,
+        )
+        contours, hierarchy = cv2.findContours(
+            binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
+        )
+
+        SliceContour = np.ones(binary.shape, dtype="uint8")
+        cv2.drawContours(SliceContour, contours, -1, 255, Thikness)
+
+        ContourArray255[i, :, :] = SliceContour
+
+    return ContourArray255
+
+def vtkContourFilter(vtkImage, isovalue=0.0):
+    """Extract an isosurface from a volume."""
+
+    ContourFilter = vtk.vtkContourFilter()
+    ContourFilter.SetInputData(vtkImage)
+    ContourFilter.SetValue(0, isovalue)
+    ContourFilter.Update()
+    mesh = vtk.vtkPolyData()
+    mesh.DeepCopy(ContourFilter.GetOutput())
+    return mesh
+
+def CV2_progress_bar(q, iter=100):
+    while True:
+        if not q.empty():
+            signal = q.get()
+
+            if "End" in signal[0]:
+                pourcentage = 100
+                Uptxt = "Finished."
+                progress_bar(pourcentage, Uptxt)
+                break
+            if "GuessTime" in signal[0]:
+                _, Uptxt, Lowtxt, start, finish, periode = signal
+                for i in range(iter):
+
+                    if q.empty():
+
+                        ratio = start + (((i + 1) / iter) * (finish - start))
+                        pourcentage = int(ratio * 100)
+                        progress_bar(pourcentage, Uptxt)
+                        sleep(periode / iter)
+                    else:
+                        break
+
+            if "loop" in signal[0]:
+                _, Uptxt, Lowtxt, start, finish, progFloat = signal
+                ratio = start + (progFloat * (finish - start))
+                pourcentage = int(ratio * 100)
+                progress_bar(pourcentage, Uptxt)
+
+        else:
+            sleep(0.1)
+
+def progress_bar(pourcentage, Uptxt, Lowtxt="", Title="BDENTAL", Delay=1):
+
+    X, Y = WindowWidth, WindowHeight = (500, 100)
+    BackGround = np.ones((Y, X, 3), dtype=np.uint8) * 255
+    # Progress bar Parameters :
+    maxFill = X - 70
+    minFill = 40
+    barColor = (50, 200, 0)
+    BarHeight = 20
+    barUp = Y - 60
+    barBottom = barUp + BarHeight
+    # Text :
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    fontScale = 0.5
+    fontThikness = 1
+    fontColor = (0, 0, 0)
+    lineStyle = cv2.LINE_AA
+
+    chunk = (maxFill - 40) / 100
+
+    img = BackGround.copy()
+    fill = minFill + int(pourcentage * chunk)
+    img[barUp:barBottom, minFill:fill] = barColor
+
+    img = cv2.putText(
+        img,
+        f"{pourcentage}%",
+        (maxFill + 10, barBottom - 8),
+        # (fill + 10, barBottom - 10),
+        font,
+        fontScale,
+        fontColor,
+        fontThikness,
+        lineStyle,
+    )
+
+    img = cv2.putText(
+        img,
+        Uptxt,
+        (minFill, barUp - 10),
+        font,
+        fontScale,
+        fontColor,
+        fontThikness,
+        lineStyle,
+    )
+    cv2.imshow(Title, img)
+
+    cv2.waitKey(Delay)
+
+    if pourcentage == 100:
+        img = BackGround.copy()
+        img[barUp:barBottom, minFill:maxFill] = (50, 200, 0)
+        img = cv2.putText(
+            img,
+            "100%",
+            (maxFill + 10, barBottom - 8),
+            font,
+            fontScale,
+            fontColor,
+            fontThikness,
+            lineStyle,
+        )
+
+        img = cv2.putText(
+            img,
+            Uptxt,
+            (minFill, barUp - 10),
+            font,
+            fontScale,
+            fontColor,
+            fontThikness,
+            lineStyle,
+        )
+        cv2.imshow(Title, img)
+        cv2.waitKey(Delay)
+        sleep(4)
+        cv2.destroyAllWindows()
+
+######################################################
+#BDENTAL Meshes Tools Operators...........
+######################################################
+def CuttingCurveAdd():
+    # Prepare scene settings :
+    bpy.ops.transform.select_orientation(orientation="GLOBAL")
+    bpy.context.scene.tool_settings.use_snap = True
+    bpy.context.scene.tool_settings.snap_elements = {"FACE"}
+    bpy.context.scene.tool_settings.transform_pivot_point = "INDIVIDUAL_ORIGINS"
+
+    # Get CuttingTarget :
+    CuttingTargetName = bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp
+    CuttingTarget = bpy.data.objects[CuttingTargetName]
+    # ....Add Curve ....... :
+    bpy.ops.curve.primitive_bezier_curve_add(
+        radius=1, enter_editmode=False, align="CURSOR"
+    )
+    # Set cutting_tool name :
+    CurveCutter = bpy.context.view_layer.objects.active
+    CurveCutter.name = "CuttingCurve"
+    curve = CurveCutter.data
+    curve.name = "CuttingCurveMesh"
+    bpy.context.scene.BDENTAL_Props.CurveCutterNameProp = CurveCutter.name
+
+    # CurveCutter settings :
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.curve.select_all(action="DESELECT")
+    curve.splines[0].bezier_points[-1].select_control_point = True
+    bpy.ops.curve.dissolve_verts()
+    bpy.ops.curve.select_all(action="SELECT")
+    bpy.ops.view3d.snap_selected_to_cursor(use_offset=False)
+
+    bpy.context.object.data.dimensions = "3D"
+    bpy.context.object.data.twist_smooth = 4
+    bpy.ops.curve.handle_type_set(type="AUTOMATIC")
+    bpy.context.object.data.bevel_depth = 0.2
+
+    bpy.context.object.data.bevel_resolution = 10
+    bpy.context.scene.tool_settings.curve_paint_settings.error_threshold = 1
+    bpy.context.scene.tool_settings.curve_paint_settings.corner_angle = 0.785398
+    # bpy.context.scene.tool_settings.curve_paint_settings.corner_angle = 1.5708
+    bpy.context.scene.tool_settings.curve_paint_settings.depth_mode = "SURFACE"
+    bpy.context.scene.tool_settings.curve_paint_settings.surface_offset = 0
+    bpy.context.scene.tool_settings.curve_paint_settings.use_offset_absolute = True
+
+    # Add color material :
+    CurveCutterMat = bpy.data.materials.get("CurveCutterMat") or bpy.data.materials.new(
+        "CurveCutterMat"
+    )
+    CurveCutterMat.diffuse_color = [0.1, 0.4, 1.0, 1.0]
+    CurveCutterMat.roughness = 0.3
+
+    curve.materials.append(CurveCutterMat)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.wm.tool_set_by_id(name="builtin.cursor")
+    bpy.context.space_data.overlay.show_outline_selected = False
+
+    # bpy.ops.object.modifier_add(type="SHRINKWRAP")
+    # bpy.context.object.modifiers["Shrinkwrap"].target = CuttingTarget
+    # bpy.context.object.modifiers["Shrinkwrap"].wrap_mode = "ABOVE_SURFACE"
+    # bpy.context.object.modifiers["Shrinkwrap"].use_apply_on_spline = True
+
+
+#######################################################################################
+def CuttingCurveAdd2():
+    # Prepare scene settings :
+    bpy.ops.transform.select_orientation(orientation="GLOBAL")
+    bpy.context.scene.tool_settings.use_snap = True
+    bpy.context.scene.tool_settings.snap_elements = {"FACE"}
+    bpy.context.scene.tool_settings.transform_pivot_point = "INDIVIDUAL_ORIGINS"
+
+    # Get CuttingTarget :
+    CuttingTargetName = bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp
+    CuttingTarget = bpy.data.objects[CuttingTargetName]
+    # ....Add Curve ....... :
+    bpy.ops.curve.primitive_bezier_curve_add(
+        radius=1, enter_editmode=False, align="CURSOR"
+    )
+    # Set cutting_tool name :
+    CurveCutter = bpy.context.view_layer.objects.active
+    CurveCutter.name = "CuttingCurve"
+    curve = CurveCutter.data
+    curve.name = "CuttingCurveMesh"
+    bpy.context.scene.BDENTAL_Props.CurveCutterNameProp = CurveCutter.name
+    # Add Sphere :
+    bpy.ops.mesh.primitive_uv_sphere_add(
+        radius=0.3, location=bpy.context.scene.cursor.location
+    )
+
+    # CurveCutter settings :
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.curve.select_all(action="DESELECT")
+    curve.splines[0].bezier_points[-1].select_control_point = True
+    bpy.ops.curve.dissolve_verts()
+    bpy.ops.curve.select_all(action="SELECT")
+    bpy.ops.view3d.snap_selected_to_cursor(use_offset=False)
+
+    bpy.context.object.data.dimensions = "3D"
+    bpy.context.object.data.twist_smooth = 3
+    bpy.ops.curve.handle_type_set(type="AUTOMATIC")
+    bpy.context.object.data.bevel_depth = 0.05
+    bpy.context.object.data.bevel_resolution = 10
+    bpy.context.scene.tool_settings.curve_paint_settings.error_threshold = 1
+    bpy.context.scene.tool_settings.curve_paint_settings.corner_angle = 0.785398
+    # bpy.context.scene.tool_settings.curve_paint_settings.corner_angle = 1.5708
+    bpy.context.scene.tool_settings.curve_paint_settings.depth_mode = "SURFACE"
+    bpy.context.scene.tool_settings.curve_paint_settings.surface_offset = 0
+    bpy.context.scene.tool_settings.curve_paint_settings.use_offset_absolute = True
+
+    # Add color material :
+    CurveCutterMat = bpy.data.materials.get("CurveCutterMat") or bpy.data.materials.new(
+        "CurveCutterMat"
+    )
+    CurveCutterMat.diffuse_color = [0.1, 0.4, 1.0, 1.0]
+    CurveCutterMat.roughness = 0.3
+
+    curve.materials.append(CurveCutterMat)
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.wm.tool_set_by_id(name="builtin.cursor")
+    bpy.context.space_data.overlay.show_outline_selected = False
+
+    bpy.ops.object.modifier_add(type="SHRINKWRAP")
+    bpy.context.object.modifiers["Shrinkwrap"].target = CuttingTarget
+    bpy.context.object.modifiers["Shrinkwrap"].wrap_mode = "ABOVE_SURFACE"
+    bpy.context.object.modifiers["Shrinkwrap"].use_apply_on_spline = True
+
+
+#######################################################################################
+def DeleteLastCurvePoint():
+    bpy.ops.object.mode_set(mode="OBJECT")
+    # Get CuttingTarget :
+    CuttingTargetName = bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp
+    CuttingTarget = bpy.data.objects[CuttingTargetName]
+
+    # Get CurveCutter :
+    CurveCutterName = bpy.context.scene.BDENTAL_Props.CurveCutterNameProp
+    CurveCutter = bpy.data.objects[CurveCutterName]
+    curve = CurveCutter.data
+    points = curve.splines[0].bezier_points[:]
+    try:
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.curve.select_all(action="DESELECT")
+        points = curve.splines[0].bezier_points[:]
+        points[-1].select_control_point = True
+        points = curve.splines[0].bezier_points[:]
+        if len(points) > 1:
+            bpy.ops.curve.delete(type="VERT")
+            points = curve.splines[0].bezier_points[:]
+            bpy.ops.curve.select_all(action="SELECT")
+            bpy.ops.curve.handle_type_set(type="AUTOMATIC")
+            bpy.ops.curve.select_all(action="DESELECT")
+            points = curve.splines[0].bezier_points[:]
+            points[-1].select_control_point = True
+
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+    except Exception:
+        pass
+
+
+#######################################################################################
+def ExtrudeCurvePointToCursor(context, event):
+
+    # Get CurveCutter :
+    CurveCutterName = bpy.context.scene.BDENTAL_Props.CurveCutterNameProp
+    CurveCutter = bpy.data.objects[CurveCutterName]
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.curve.extrude(mode="INIT")
+    bpy.ops.view3d.snap_selected_to_cursor(use_offset=False)
+    bpy.ops.curve.select_all(action="SELECT")
+    bpy.ops.curve.handle_type_set(type="AUTOMATIC")
+    bpy.ops.curve.select_all(action="DESELECT")
+    points = CurveCutter.data.splines[0].bezier_points[:]
+    points[-1].select_control_point = True
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+
+#######################################################################################
+# 1st separate method function :
+def SplitSeparator(CuttingTarget):
+    bpy.ops.mesh.select_all(action="DESELECT")
+    intersect_vgroup = CuttingTarget.vertex_groups["intersect_vgroup"]
+    CuttingTarget.vertex_groups.active_index = intersect_vgroup.index
+    bpy.ops.object.vertex_group_select()
+
+    bpy.ops.mesh.edge_split()
+
+    # Separate by loose parts :
+    bpy.ops.mesh.select_all(action="DESELECT")
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.mesh.separate(type="LOOSE")
+
+#######################################################################################
+# 2nd separate method function :
+def IterateSeparator():
+
+    if bpy.context.mode != 'OBJECT' :
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+    bpy.ops.object.select_all(action="SELECT")
+    selected_initial = bpy.context.selected_objects[:]
+    bpy.ops.object.select_all(action="DESELECT")
+    # VisObj = bpy.context.visible_objects[:].copy()
+
+    for obj in selected_initial:
+
+        try:
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+
+            # Select intesecting vgroup + more :
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_mode(type="VERT")
+            bpy.ops.mesh.select_all(action="DESELECT")
+            intersect_vgroup = obj.vertex_groups["intersect_vgroup"]
+            obj.vertex_groups.active_index = intersect_vgroup.index
+            bpy.ops.object.vertex_group_select()
+            # bpy.ops.mesh.select_more()
+
+            # Get selected unselected verts :
+
+            mesh = obj.data
+            # polys = mesh.polygons
+            verts = mesh.vertices
+            # Polys = mesh.polygons
+            # bpy.context.tool_settings.mesh_select_mode = (True, False, False)
+            bpy.ops.object.mode_set(mode="OBJECT")
+            # unselected_polys = [p.index for p in Polys if p.select == False]
+            unselected_verts = [v.index for v in verts if v.select == False]
+
+            # Hide intesecting vgroup :
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.hide(unselected=False)
+
+            # select a part :
+            bpy.ops.object.mode_set(mode="OBJECT")
+            verts[unselected_verts[0]].select = True
+            bpy.ops.object.mode_set(mode="EDIT")
+
+            bpy.ops.mesh.select_linked(delimit=set())
+            bpy.ops.mesh.reveal()
+
+            # ....Separate by selection.... :
+            bpy.ops.mesh.separate(type="SELECTED")
+            bpy.ops.object.mode_set(mode="OBJECT")
+
+        except Exception:
+            pass
+    resulting_parts = PartsFilter()  # all visible objects are selected after func
+
+    if resulting_parts == len(selected_initial):
+        return False
+    else:
+        return True
+
+
+#######################################################################################
+# Filter loose parts function :
+def PartsFilter():
+
+    # Filter small parts :
+    VisObj = bpy.context.visible_objects[:].copy()
+    ObjToRemove = []
+    for obj in VisObj:
+        if not obj.data.polygons:
+            ObjToRemove.append(obj)
+        else:
+            bpy.ops.object.select_all(action="DESELECT")
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+            verts = obj.data.vertices
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="DESELECT")
+            bpy.ops.mesh.select_non_manifold()
+            bpy.ops.mesh.remove_doubles()
+            bpy.ops.object.mode_set(mode="OBJECT")
+            non_manifold_verts = [v for v in verts if v.select == True]
+
+            if len(verts) < len(non_manifold_verts) * 2:
+                ObjToRemove.append(obj)
+
+    # Remove small parts :
+    for obj in ObjToRemove:
+        bpy.data.objects.remove(obj)
+
+    bpy.ops.object.select_all(action="SELECT")
+    resulting_parts = len(bpy.context.selected_objects)
+
+    return resulting_parts
+
+
+#######################################################################################
+# CurveCutter 2 functions :
+#######################################################################################
+def CutterPointsList(cutter, obj):
+
+    curve = cutter.data
+    CurveCoList = []
+    for point in curve.splines[0].bezier_points:
+        p_co_global = cutter.matrix_world @ point.co
+        p_co_obj_relative = obj.matrix_world.inverted() @ p_co_global
+        CurveCoList.append(p_co_obj_relative)
+
+    return CurveCoList
+
+
+def ClosestVerts(i, CurveCoList, obj):
+
+    # initiate a KDTree :
+    size = len(obj.data.vertices)
+    kd = kdtree.KDTree(size)
+
+    for v_id, v in enumerate(obj.data.vertices):
+        kd.insert(v.co, v_id)
+
+    kd.balance()
+    v_co, v_id, dist = kd.find(CurveCoList[i])
+
+    return v_id
+
+# Add square cutter function :
+def add_square_cutter(context):
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+    bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
+
+    Model = bpy.context.view_layer.objects.active
+    loc = Model.location.copy()  # get model location
+    view_rotation = context.space_data.region_3d.view_rotation
+
+    view3d_rot_matrix = (
+        view_rotation.to_matrix().to_4x4()
+    )  # get v3d rotation matrix 4x4
+
+    # Add cube :
+    bpy.ops.mesh.primitive_cube_add(size=120, enter_editmode=False)
+
+    frame = bpy.context.view_layer.objects.active
+    for obj in bpy.data.objects:
+        if obj.name == "my_frame_cutter":
+            obj.name = "my_frame_cutter_old"
+    frame.name = "my_frame_cutter"
+
+    # Reshape and align cube :
+
+    frame.matrix_world = view3d_rot_matrix
+
+    frame.location = loc
+
+    bpy.context.object.display_type = "WIRE"
+    bpy.context.object.scale[1] = 0.5
+    bpy.context.object.scale[2] = 2
+
+    # Subdivide cube 10 iterations 3 times :
+
+    bpy.ops.object.select_all(action="DESELECT")
+    frame.select_set(True)
+    bpy.context.view_layer.objects.active = frame
+
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.subdivide(number_cuts=10)
+    bpy.ops.mesh.subdivide(number_cuts=6)
+
+    # Make cube normals consistent :
+
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.mesh.select_all(action="DESELECT")
+
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    # Select frame :
+
+    bpy.ops.object.select_all(action="DESELECT")
+    frame.select_set(True)
+    bpy.context.view_layer.objects.active = frame
+
+###########################################################################
+# Add BDENTAL MultiView :
+def BDENTAL_MultiView_Toggle():
+    
+    WM = bpy.context.window_manager
+    
+    # Duplicate Area3D to new window :
+    MainWindow = WM.windows[0]
+    LayoutScreen = bpy.data.screens['Layout']
+    LayoutArea3D = [area for area in LayoutScreen.areas if area.type == "VIEW_3D"][0]
+    
+    Override = {"window":MainWindow, "screen":LayoutScreen, "area":LayoutArea3D}
+    bpy.ops.screen.area_dupli(Override, "INVOKE_DEFAULT")
+    
+    
+    # Get MultiView (Window, Screen, Area3D, Space3D, Region3D) and set prefferences :
+    MultiView_Window = WM.windows[-1]
+    MultiView_Screen = MultiView_Window.screen
+    
+    MultiView_Area3D = [area for area in MultiView_Screen.areas if area.type == "VIEW_3D"][0]
+    MultiView_Space3D = [space for space in MultiView_Area3D.spaces if space.type == "VIEW_3D"][0]
+    MultiView_Region3D = [reg for reg in MultiView_Area3D.regions if reg.type == "WINDOW"][0]
+    
+    MultiView_Area3D.type = 'CONSOLE' # change area type for update : bug dont respond to spliting
+
+    
+    # 1rst Step : Vertical Split .
+    
+    Override = {"window":MultiView_Window, "screen":MultiView_Screen, "area":MultiView_Area3D, "space_data":MultiView_Space3D, "region":MultiView_Region3D}
+    
+    bpy.ops.screen.area_split(Override, direction='VERTICAL', factor=1/5)
+    MultiView_Screen.areas[0].type = 'OUTLINER'
+    MultiView_Screen.areas[1].type = 'OUTLINER'
+    
+    # 2nd Step : Horizontal Split .
+    Active_Area = MultiView_Screen.areas[0]
+    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
+    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
+    Override = {"window":MultiView_Window, "screen":MultiView_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
+    
+    bpy.ops.screen.area_split(Override, direction='HORIZONTAL', factor=1/2)
+    MultiView_Screen.areas[0].type = 'VIEW_3D'
+    MultiView_Screen.areas[1].type = 'VIEW_3D'
+    MultiView_Screen.areas[2].type = 'VIEW_3D'
+    
+    # 3rd Step : Vertical Split .
+    Active_Area = MultiView_Screen.areas[0]
+    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
+    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
+    Override = {"window":MultiView_Window, "screen":MultiView_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
+    
+    bpy.ops.screen.area_split(Override, direction='VERTICAL',factor=1/2)
+    MultiView_Screen.areas[0].type = 'OUTLINER'
+    MultiView_Screen.areas[1].type = 'OUTLINER'
+    MultiView_Screen.areas[2].type = 'OUTLINER'
+    MultiView_Screen.areas[3].type = 'OUTLINER'
+    
+    # 4th Step : Vertical Split .
+    Active_Area = MultiView_Screen.areas[2]
+    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
+    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
+    Override = {"window":MultiView_Window, "screen":MultiView_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
+    
+    bpy.ops.screen.area_split(Override, direction='VERTICAL',factor=1/2)
+    MultiView_Screen.areas[0].type = 'VIEW_3D'
+    MultiView_Screen.areas[1].type = 'VIEW_3D'
+    MultiView_Screen.areas[2].type = 'VIEW_3D'
+    MultiView_Screen.areas[3].type = 'VIEW_3D'
+    MultiView_Screen.areas[4].type = 'VIEW_3D'
+    
+    # 4th Step : Horizontal Split .
+    Active_Area = MultiView_Screen.areas[1]
+    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
+    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
+    Override = {"window":MultiView_Window, "screen":MultiView_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
+    
+    bpy.ops.screen.area_split(Override, direction='HORIZONTAL', factor=1/2)
+    
+    MultiView_Screen.areas[1].type = 'OUTLINER'
+    MultiView_Screen.areas[5].type = "PROPERTIES"
+    
+    
+    # Set MultiView Areas 3D prefferences :
+    for MultiView_Area3D in MultiView_Screen.areas :
+        
+        if MultiView_Area3D.type == 'VIEW_3D' :
+            MultiView_Space3D = [space for space in MultiView_Area3D.spaces if space.type == "VIEW_3D"][0]
+            
+            MultiView_Space3D.overlay.show_text = False
+            MultiView_Space3D.show_region_ui = False
+            MultiView_Space3D.show_region_toolbar = False
+            MultiView_Space3D.region_3d.view_perspective = "ORTHO"
+            MultiView_Space3D.show_gizmo = False
+            MultiView_Space3D.show_region_tool_header = False
+            MultiView_Space3D.overlay.show_floor = False
+            MultiView_Space3D.overlay.show_ortho_grid = False
+            MultiView_Space3D.overlay.show_relationship_lines = False
+            MultiView_Space3D.overlay.show_extras = False
+            MultiView_Space3D.overlay.show_bones = False
+            MultiView_Space3D.overlay.show_motion_paths = False
+
+
+            
+            MultiView_Space3D.shading.type = 'MATERIAL'
+            # 'Material' Shading Light method :
+            MultiView_Space3D.shading.use_scene_lights = True
+            MultiView_Space3D.shading.use_scene_world = False
+
+            # 'RENDERED' Shading Light method :
+            MultiView_Space3D.shading.use_scene_lights_render = False
+            MultiView_Space3D.shading.use_scene_world_render = True
+
+            MultiView_Space3D.shading.studio_light = "forest.exr"
+            MultiView_Space3D.shading.studiolight_rotate_z = 0
+            MultiView_Space3D.shading.studiolight_intensity = 1.5
+            MultiView_Space3D.shading.studiolight_background_alpha = 0.0
+            MultiView_Space3D.shading.studiolight_background_blur = 0.0
+
+            MultiView_Space3D.shading.render_pass = "COMBINED"
+        
+            MultiView_Space3D.shading.type = 'SOLID'
+            MultiView_Space3D.shading.light = "STUDIO"
+            MultiView_Space3D.shading.studio_light = "outdoor.sl"
+            MultiView_Space3D.shading.color_type = "TEXTURE"
+            MultiView_Space3D.shading.background_type = 'VIEWPORT'
+            MultiView_Space3D.shading.background_color = [0.7, 0.7, 0.7]
+
+            MultiView_Space3D.show_region_header = False
+    
+    
+    OUTLINER = TopLeft = MultiView_Screen.areas[1]
+    PROPERTIES = DownLeft = MultiView_Screen.areas[5]
+    AXIAL = TopMiddle = MultiView_Screen.areas[3]
+    CORONAL = TopRight = MultiView_Screen.areas[0]
+    SAGITAL = DownRight = MultiView_Screen.areas[2]
+    VIEW_3D = DownMiddle = MultiView_Screen.areas[4]
+
+#    TopMiddle.header_text_set("AXIAL")
+#    TopRight.header_text_set("CORONAL")
+#    DownRight.header_text_set("SAGITAL")
+#    DownMiddle.header_text_set("3D VIEW")
+    
+    
+    return OUTLINER, PROPERTIES, AXIAL, CORONAL, SAGITAL, VIEW_3D
+
+
+def BDENTAL_Quad_View():
+    Override_initial = {}
+    
+    MyScr = bpy.data.screens['Layout']
+    MyArea = [area for area in MyScr.areas if area.type == "VIEW_3D"][-1]
+    
+    Override_initial['window'] = bpy.context.window_manager.windows[0]
+    Override_initial['screen'] = MyScr
+    Override_initial["area"] = MyArea
+    
+    bpy.ops.screen.area_dupli(Override_initial, "INVOKE_DEFAULT")
+    
+    BDENTAL_Window = bpy.context.window_manager.windows[-1]
+    BDENTAL_Screen = BDENTAL_Window.screen
+    BDENTAL_Area_Zero = [area for area in BDENTAL_Screen.areas if area.type == "VIEW_3D"][0]
+    BDENTAL_Area_Zero_Space = [space for space in BDENTAL_Area_Zero.spaces if space.type == "VIEW_3D"][0]
+    BDENTAL_Area_Zero_Region = [reg for reg in BDENTAL_Area_Zero.regions if reg.type == "WINDOW"][0]
+    
+    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":BDENTAL_Area_Zero, "space_data":BDENTAL_Area_Zero_Space, "region":BDENTAL_Area_Zero_Region}
+
+    BDENTAL_Area_Zero_Space.show_region_ui = False
+    BDENTAL_Area_Zero_Space.show_region_toolbar = False
+    BDENTAL_Area_Zero_Space.show_region_header = False
+    BDENTAL_Area_Zero_Space.region_3d.view_perspective = "ORTHO"
+    BDENTAL_Area_Zero_Space.show_gizmo = False
+    BDENTAL_Area_Zero_Space.show_region_header = False
+    
+    # Vertical split 1 :
+    
+    bpy.ops.screen.area_split(Override, direction='VERTICAL', factor=1/3)
+
+    BDENTAL_Screen.areas[1].type = 'OUTLINER'
+    
+    # Horizontal split 1 :
+    BDENTAL_Window = bpy.context.window_manager.windows[-1]
+    BDENTAL_Screen = BDENTAL_Window.screen
+    Active_Area = BDENTAL_Screen.areas[0]
+    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
+    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
+    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
+    bpy.ops.screen.area_split(Override, direction='HORIZONTAL', factor=1/2)
+    
+    # Vertical split 2 :
+    BDENTAL_Window = bpy.context.window_manager.windows[-1]
+    BDENTAL_Screen = BDENTAL_Window.screen
+    Active_Area = BDENTAL_Screen.areas[0]
+    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
+    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
+    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
+    
+    bpy.ops.screen.area_split(Override, direction='VERTICAL',factor=1/2)
+
+    # Horizontal split 2 :
+    BDENTAL_Window = bpy.context.window_manager.windows[-1]
+    BDENTAL_Screen = BDENTAL_Window.screen
+    Active_Area = BDENTAL_Screen.areas[1]
+    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
+    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
+    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
+    
+    bpy.ops.screen.area_split(Override, direction='HORIZONTAL', factor=1/2)
+    
+    BDENTAL_Screen.areas[1].type = "VIEW_3D"
+    BDENTAL_Screen.areas[4].type = "VIEW_3D"
+    
+    # Vertical split 2 :
+    BDENTAL_Window = bpy.context.window_manager.windows[-1]
+    BDENTAL_Screen = BDENTAL_Window.screen
+    Active_Area = BDENTAL_Screen.areas[4]
+    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
+    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
+    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
+    
+    bpy.ops.screen.area_split(Override, direction='VERTICAL',factor=1/2)
+    
+    BDENTAL_Screen.areas[4].type = "PROPERTIES"
+    BDENTAL_Screen.areas[5].type = 'OUTLINER'
