@@ -848,16 +848,55 @@ class BDENTAL_OT_AddSlices(bpy.types.Operator):
                 # if SLICES_Coll :
                 #     SLICES_Coll.hide_viewport = False
 
-                AddAxialSlice(Preffix, DcmInfo)
-                obj = bpy.context.object
-                MoveToCollection(obj=obj, CollName="SLICES")
-                AddCoronalSlice(Preffix, DcmInfo)
-                obj = bpy.context.object
-                MoveToCollection(obj=obj, CollName="SLICES")
-                AddSagitalSlice(Preffix, DcmInfo)
-                obj = bpy.context.object
-                MoveToCollection(obj=obj, CollName="SLICES")
+                AxialPlane = AddAxialSlice(Preffix, DcmInfo)
+                MoveToCollection(obj=AxialPlane, CollName="SLICES")
+
+                CoronalPlane = AddCoronalSlice(Preffix, DcmInfo)
+                MoveToCollection(obj=CoronalPlane, CollName="SLICES")
+
+                SagitalPlane = AddSagitalSlice(Preffix, DcmInfo)
+                MoveToCollection(obj=SagitalPlane, CollName="SLICES")
                 
+                # Add Cameras :
+
+                bpy.context.scene.render.resolution_x = 512
+                bpy.context.scene.render.resolution_y = 512
+
+                [bpy.data.cameras.remove(cam) for cam in  bpy.data.cameras if f"{AxialPlane.name}_CAM" in cam.name]
+                Add_Cam_To_Plane(AxialPlane, CamDistance = 100, ClipOffset=1)
+
+                [bpy.data.cameras.remove(cam) for cam in  bpy.data.cameras if f"{CoronalPlane.name}_CAM" in cam.name]
+                Add_Cam_To_Plane(CoronalPlane, CamDistance = 100, ClipOffset=1)
+
+                [bpy.data.cameras.remove(cam) for cam in  bpy.data.cameras if f"{SagitalPlane.name}_CAM" in cam.name]
+                Add_Cam_To_Plane(SagitalPlane, CamDistance = 100, ClipOffset=1)
+
+                for obj in bpy.data.objects :
+                    if obj.name == f"0_{Preffix}_SLICES" :
+                        bpy.data.objects.remove(obj)
+
+                bpy.ops.object.empty_add(type='PLAIN_AXES', align='WORLD', location=AxialPlane, scale=(1, 1, 1))
+                EmptySlices = bpy.context.object
+                EmptySlices.empty_display_size = 20
+                EmptySlices.show_name = True
+                EmptySlices.show_in_front = True
+                EmptySlices.name = f"0_{Preffix}_SLICES"
+
+                Override, _, _ = CtxOverride(bpy.context)
+
+                bpy.ops.object.select_all(Override,action='DESELECT')
+                AxialPlane.select_set(True)
+                CoronalPlane.select_set(True)
+                SagitalPlane.select_set(True)
+                EmptySlices.select_set(True)
+                bpy.context.view_layer.objects.active = EmptySlices
+                bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+
+
+
+
+
+
                 return {"FINISHED"}
 
 ###############################################################################
@@ -891,42 +930,48 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
         BDENTAL_Props = bpy.context.scene.BDENTAL_Props
 
         Active_Obj = bpy.context.view_layer.objects.active
-        Conditions = [  not Active_Obj,
-                        not Active_Obj.name.startswith("BD"),
-                        not Active_Obj.name.endswith("_CTVolume"),
-                        Active_Obj.select_get() == False ]
-        
-        if Conditions[0] or Conditions[1] or Conditions[2] or Conditions[3] :                
+
+        if not Active_Obj :
             message = [" Please select CTVOLUME for segmentation ! "]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
             return {"CANCELLED"}
-                
-                
         else :
-            self.Vol = Active_Obj
-            self.Preffix = self.Vol.name[:5]
-            DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
-            self.DcmInfo = DcmInfoDict[self.Preffix]
-            self.Nrrd255Path = AbsPath(self.DcmInfo["Nrrd255Path"])
-            self.Treshold = BDENTAL_Props.Treshold
-        
-            if exists(self.Nrrd255Path):
-                if GpShader == "VGS_Marcos_modified":
-                    GpNode = bpy.data.node_groups.get(f"{self.Preffix}_{GpShader}")
-                    ColorPresetRamp = GpNode.nodes["ColorPresetRamp"].color_ramp
-                    value = (self.Treshold - Wmin) / (Wmax - Wmin)
-                    TreshColor = [
-                        round(c, 2) for c in ColorPresetRamp.evaluate(value)[0:3]
-                    ]
-                    self.SegmentColor = TreshColor + [1.0]
-                self.q = Queue()
-                wm = context.window_manager
-                return wm.invoke_props_dialog(self)
-
-            else:
-                message = [" Image File not Found in Project Folder ! "]
-                ShowMessageBox(message=message, icon="COLORSET_01_VEC")
+            Conditions = [  
+                            not Active_Obj.name.startswith("BD"),
+                            not Active_Obj.name.endswith("_CTVolume"),
+                            Active_Obj.select_get() == False ]
+            
+            if Conditions[0] or Conditions[1] or Conditions[2] :                
+                message = [" Please select CTVOLUME for segmentation ! "]
+                ShowMessageBox(message=message, icon="COLORSET_02_VEC")
                 return {"CANCELLED"}
+                    
+                    
+            else :
+                self.Vol = Active_Obj
+                self.Preffix = self.Vol.name[:5]
+                DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
+                self.DcmInfo = DcmInfoDict[self.Preffix]
+                self.Nrrd255Path = AbsPath(self.DcmInfo["Nrrd255Path"])
+                self.Treshold = BDENTAL_Props.Treshold
+            
+                if exists(self.Nrrd255Path):
+                    if GpShader == "VGS_Marcos_modified":
+                        GpNode = bpy.data.node_groups.get(f"{self.Preffix}_{GpShader}")
+                        ColorPresetRamp = GpNode.nodes["ColorPresetRamp"].color_ramp
+                        value = (self.Treshold - Wmin) / (Wmax - Wmin)
+                        TreshColor = [
+                            round(c, 2) for c in ColorPresetRamp.evaluate(value)[0:3]
+                        ]
+                        self.SegmentColor = TreshColor + [1.0]
+                    self.q = Queue()
+                    wm = context.window_manager
+                    return wm.invoke_props_dialog(self)
+
+                else:
+                    message = [" Image File not Found in Project Folder ! "]
+                    ShowMessageBox(message=message, icon="COLORSET_01_VEC")
+                    return {"CANCELLED"}
 
     def DicomToMesh(self):
         counter_start = Tcounter()
@@ -1137,9 +1182,79 @@ class BDENTAL_OT_MultiView(bpy.types.Operator):
 
     def execute(self, context):
 
-        BDENTAL_MultiView_Toggle()
+        BDENTAL_Props = bpy.context.scene.BDENTAL_Props
 
+        Active_Obj = bpy.context.view_layer.objects.active
+        
+        if not Active_Obj :                
+            message = [" Please select CTVOLUME or SEGMENTATION ! "]
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+            return {"CANCELLED"}
+        else :
+            Conditions = [  
+                            not Active_Obj.name.startswith("BD"),
+                            not Active_Obj.name.endswith(("_CTVolume", "SEGMENTATION")),
+                            Active_Obj.select_get() == False,
+                                                                     ]
+            if Conditions[0] or Conditions[1] or Conditions[2] :
+                message = [" Please select CTVOLUME or SEGMENTATION ! "]
+                ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+                return {"CANCELLED"}    
+            else :
+                Preffix = Active_Obj.name[:5]
+                AxialPlane = bpy.data.objects.get(f"1_{Preffix}_AXIAL_SLICE")
+                CoronalPlane = bpy.data.objects.get(f"2_{Preffix}_CORONAL_SLICE")
+                SagitalPlane = bpy.data.objects.get(f"3_{Preffix}_SAGITAL_SLICE")
 
+                if not AxialPlane or not CoronalPlane or not SagitalPlane :
+                    message = [ "To Add Multi-View Window :",
+                                "1 - Please select CTVOLUME or SEGMENTATION",
+                                "2 - Click on < SLICE VOLUME > button",
+                                "AXIAL, CORONAL and SAGITAL slices will be added",
+                                "3 - Click <MULTI-VIEW> button",
+                                ]
+                    ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+                    return {"CANCELLED"}
+
+                else :
+
+                    bpy.context.scene.unit_settings.scale_length = 0.001
+                    bpy.context.scene.unit_settings.length_unit = 'MILLIMETERS'
+                    
+                    MultiView_Window, OUTLINER, PROPERTIES, AXIAL, CORONAL, SAGITAL, VIEW_3D = BDENTAL_MultiView_Toggle(Preffix)
+                    MultiView_Screen = MultiView_Window.screen
+                    AXIAL_Space3D = [Space for Space in AXIAL.spaces if Space.type == "VIEW_3D"][0]
+                    AXIAL_Region = [reg for reg in AXIAL.regions if reg.type == "WINDOW"][0]
+
+                    CORONAL_Space3D = [Space for Space in CORONAL.spaces if Space.type == "VIEW_3D"][0]
+                    CORONAL_Region = [reg for reg in CORONAL.regions if reg.type == "WINDOW"][0]
+
+                    SAGITAL_Space3D = [Space for Space in SAGITAL.spaces if Space.type == "VIEW_3D"][0]
+                    SAGITAL_Region = [reg for reg in SAGITAL.regions if reg.type == "WINDOW"][0]
+                    # AXIAL Cam view toggle :
+
+                    AxialCam = bpy.data.objects.get(f"{AxialPlane.name}_CAM")
+                    AXIAL_Space3D.use_local_collections = True
+                    AXIAL_Space3D.use_local_camera = True
+                    AXIAL_Space3D.camera = AxialCam
+                    Override = {"window":MultiView_Window, 'screen':MultiView_Screen, 'area':AXIAL,'space_data':AXIAL_Space3D, 'region':AXIAL_Region}
+                    bpy.ops.view3d.view_camera(Override)
+
+                    # CORONAL Cam view toggle :
+                    CoronalCam = bpy.data.objects.get(f"{CoronalPlane.name}_CAM")
+                    CORONAL_Space3D.use_local_collections = True
+                    CORONAL_Space3D.use_local_camera = True
+                    CORONAL_Space3D.camera = CoronalCam
+                    Override = {"window":MultiView_Window, 'screen':MultiView_Screen, 'area':CORONAL,'space_data':CORONAL_Space3D, 'region':CORONAL_Region}
+                    bpy.ops.view3d.view_camera(Override)
+
+                    # AXIAL Cam view toggle :
+                    SagitalCam = bpy.data.objects.get(f"{SagitalPlane.name}_CAM")
+                    SAGITAL_Space3D.use_local_collections = True
+                    SAGITAL_Space3D.use_local_camera = True
+                    SAGITAL_Space3D.camera = SagitalCam
+                    Override = {"window":MultiView_Window, 'screen':MultiView_Screen, 'area':SAGITAL,'space_data':SAGITAL_Space3D, 'region':SAGITAL_Region}
+                    bpy.ops.view3d.view_camera(Override)
 
 
         return {"FINISHED"}

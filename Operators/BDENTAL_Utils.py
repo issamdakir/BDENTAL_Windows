@@ -617,19 +617,26 @@ def Scene_Settings():
 @persistent
 def AxialSliceUpdate(scene):
     Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_AXIAL_SLICE")) ]
+    EmptySlices = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SLICES")) ]
+
     if Planes :
         BDENTAL_Props = scene.BDENTAL_Props
-        Plane = bpy.context.view_layer.objects.active
-        Condition1 = Plane in Planes
-        if Condition1 :
-            Preffix = Plane.name[2:7]
+        ActiveObject = bpy.context.view_layer.objects.active
+        
+        Condition1 = ActiveObject in Planes
+        Condition2 = ActiveObject in EmptySlices
+            
+        
+        if Condition1 or Condition2:
+            Preffix = ActiveObject.name[2:7]
+            Plane = [obj for obj in Planes if Preffix in obj.name][0]
             DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
             DcmInfo = DcmInfoDict[Preffix]
             ImageData = AbsPath(DcmInfo["Nrrd255Path"])
 
-            Condition2 = exists(ImageData)
+            Condition = exists(ImageData)
 
-            if Condition2 :
+            if Condition :
 
                 SlicesDir = AbsPath(DcmInfo["SlicesDir"])
                 TransformMatrix = DcmInfo["TransformMatrix"]
@@ -697,14 +704,20 @@ def AxialSliceUpdate(scene):
 @persistent
 def CoronalSliceUpdate(scene):
     
-    Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_CORONAL_SLICE"))]
+    Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_CORONAL_SLICE")) ]
+    EmptySlices = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SLICES")) ]
 
     if Planes :
         BDENTAL_Props = scene.BDENTAL_Props
-        Plane = bpy.context.view_layer.objects.active
-        Condition1 = Plane in Planes
-        if Condition1 :
-            Preffix = Plane.name[2:7]
+        ActiveObject = bpy.context.view_layer.objects.active
+        
+        Condition1 = ActiveObject in Planes
+        Condition2 = ActiveObject in EmptySlices
+            
+        
+        if Condition1 or Condition2:
+            Preffix = ActiveObject.name[2:7]
+            Plane = [obj for obj in Planes if Preffix in obj.name][0]
             DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
             DcmInfo = DcmInfoDict[Preffix]
             ImageData = AbsPath(DcmInfo["Nrrd255Path"])
@@ -714,6 +727,7 @@ def CoronalSliceUpdate(scene):
             if Condition2 :
 
                 SlicesDir = AbsPath(DcmInfo["SlicesDir"])
+                
                 TransformMatrix = DcmInfo["TransformMatrix"]
                 ImageName = f"{Plane.name}.png"
                 ImagePath = join(SlicesDir, ImageName)
@@ -772,6 +786,7 @@ def CoronalSliceUpdate(scene):
                 if not BlenderImage:
                     bpy.data.images.load(ImagePath)
                     BlenderImage = bpy.data.images.get(f"{Plane.name}.png")
+                    
                 else :
                     BlenderImage.filepath = ImagePath
                     BlenderImage.reload()
@@ -779,14 +794,20 @@ def CoronalSliceUpdate(scene):
 @persistent
 def SagitalSliceUpdate(scene):
 
-    Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SAGITAL_SLICE"))]
+    Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SAGITAL_SLICE")) ]
+    EmptySlices = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SLICES")) ]
 
     if Planes :
         BDENTAL_Props = scene.BDENTAL_Props
-        Plane = bpy.context.view_layer.objects.active
-        Condition1 = Plane in Planes
-        if Condition1 :
-            Preffix = Plane.name[2:7]
+        ActiveObject = bpy.context.view_layer.objects.active
+        
+        Condition1 = ActiveObject in Planes
+        Condition2 = ActiveObject in EmptySlices
+            
+        
+        if Condition1 or Condition2:
+            Preffix = ActiveObject.name[2:7]
+            Plane = [obj for obj in Planes if Preffix in obj.name][0]
             DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
             DcmInfo = DcmInfoDict[Preffix]
             ImageData = AbsPath(DcmInfo["Nrrd255Path"])
@@ -860,6 +881,50 @@ def SagitalSliceUpdate(scene):
                     BlenderImage.reload()
 
 ####################################################################
+def Add_Cam_To_Plane(Plane, CamDistance, ClipOffset):
+    Override , _ , _ = CtxOverride(bpy.context)
+    bpy.ops.object.camera_add(Override)
+    Cam = bpy.context.object
+    Cam.name = f'{Plane.name}_CAM'
+    Cam.data.name = f'{Plane.name}_CAM_data'
+    Cam.data.type = 'ORTHO'
+    Cam.data.ortho_scale = max(Plane.dimensions)*1.1
+    Cam.data.display_size = 10
+     
+    Cam.matrix_world = Plane.matrix_world
+    bpy.ops.transform.translate(value=(0, 0, CamDistance), orient_type='LOCAL', orient_matrix=Plane.matrix_world.to_3x3(), orient_matrix_type='LOCAL', constraint_axis=(False, False, True))
+    Cam.data.clip_start = CamDistance - ClipOffset
+    Cam.data.clip_end = CamDistance + ClipOffset
+
+    Plane.select_set(True)
+    bpy.context.view_layer.objects.active = Plane
+    bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
+    Cam.hide_set(True)
+    Cam.select_set(False)
+
+
+# def Add_Cam_To_Plane(Plane, CamView, Override, ActiveSpace):
+
+#     bpy.ops.object.camera_add(Override)
+#     Cam = bpy.context.object
+#     Cam.name = f'BDENTAL_CAM_{CamView}'
+#     Cam.data.name = f'BDENTAL_CAM_{CamView}_data'
+#     Cam.data.type = 'ORTHO'
+#     Cam.data.ortho_scale = max(Plane.dimensions)*1.1
+#     Cam.data.display_size = 10
+
+#     Cam.matrix_world = Plane.matrix_world
+
+#     bpy.ops.transform.translate(Override, value=(0, 0, 100), orient_type='LOCAL', orient_matrix=Plane.matrix_world.to_3x3(), orient_matrix_type='LOCAL', constraint_axis=(False, False, True))
+#     Active_Space.camera = Cam
+#     bpy.ops.view3d.view_camera(Override)
+#     Plane.select_set(True)
+#     bpy.context.view_layer.objects.active = Plane
+#     bpy.ops.object.parent_set(Override, type='OBJECT', keep_transform=True)
+#     Cam.hide_set(True)
+#     Cam.select_set(False)
+
+####################################################################
 def AddAxialSlice(Preffix, DcmInfo):
     
     name = f"1_{Preffix}_AXIAL_SLICE"
@@ -910,7 +975,7 @@ def AddAxialSlice(Preffix, DcmInfo):
     for node in nodes:
         if node.type != "OUTPUT_MATERIAL":
             nodes.remove(node)
-    SlicesDir = AbsPath(bpy.context.scene.BDENTAL_Props.SlicesDir)
+    SlicesDir = AbsPath(DcmInfo["SlicesDir"])
     ImageName = f"{name}.png"
     ImagePath = join(SlicesDir, ImageName)
 
@@ -931,14 +996,7 @@ def AddAxialSlice(Preffix, DcmInfo):
     bpy.context.scene.transform_orientation_slots[1].type = "LOCAL"
     bpy.ops.wm.tool_set_by_id(name="builtin.move")
 
-    post_handlers = bpy.app.handlers.depsgraph_update_post
-    [
-        post_handlers.remove(h)
-        for h in post_handlers
-        if h.__name__ == "AxialSliceUpdate"
-    ]
-    post_handlers.append(AxialSliceUpdate)
-    
+    return AxialPlane
 
 def AddCoronalSlice(Preffix, DcmInfo):
 
@@ -991,7 +1049,7 @@ def AddCoronalSlice(Preffix, DcmInfo):
     for node in nodes:
         if node.type != "OUTPUT_MATERIAL":
             nodes.remove(node)
-    SlicesDir = AbsPath(bpy.context.scene.BDENTAL_Props.SlicesDir)
+    SlicesDir = AbsPath(DcmInfo["SlicesDir"])
     ImageName = f"{name}.png"
     ImagePath = join(SlicesDir, ImageName)
 
@@ -1012,13 +1070,7 @@ def AddCoronalSlice(Preffix, DcmInfo):
     bpy.context.scene.transform_orientation_slots[1].type = "LOCAL"
     bpy.ops.wm.tool_set_by_id(name="builtin.move")
 
-    post_handlers = bpy.app.handlers.depsgraph_update_post
-    [
-        post_handlers.remove(h)
-        for h in post_handlers
-        if h.__name__ == "CoronalSliceUpdate"
-    ]
-    post_handlers.append(CoronalSliceUpdate)
+    return CoronalPlane
 
 def AddSagitalSlice(Preffix, DcmInfo):
 
@@ -1051,7 +1103,7 @@ def AddSagitalSlice(Preffix, DcmInfo):
     SagitalDims = Vector((DimX, DimY, 0.0))
     SagitalPlane.dimensions = SagitalDims
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    SagitalPlane.rotation_euler = Euler((pi / 2, 0.0, pi / 2), "XYZ")
+    SagitalPlane.rotation_euler = Euler((pi / 2, 0.0, -pi / 2), "XYZ")
     SagitalPlane.location = VC
     # Add Material :
     mat = bpy.data.materials.get(f"{name}_mat") or bpy.data.materials.new(
@@ -1071,7 +1123,7 @@ def AddSagitalSlice(Preffix, DcmInfo):
     for node in nodes:
         if node.type != "OUTPUT_MATERIAL":
             nodes.remove(node)
-    SlicesDir = AbsPath(bpy.context.scene.BDENTAL_Props.SlicesDir)
+    SlicesDir = AbsPath(DcmInfo["SlicesDir"])
     ImageName = f"{name}.png"
     ImagePath = join(SlicesDir, ImageName)
 
@@ -1092,13 +1144,7 @@ def AddSagitalSlice(Preffix, DcmInfo):
     bpy.context.scene.transform_orientation_slots[1].type = "LOCAL"
     bpy.ops.wm.tool_set_by_id(name="builtin.move")
 
-    post_handlers = bpy.app.handlers.depsgraph_update_post
-    [
-        post_handlers.remove(h)
-        for h in post_handlers
-        if h.__name__ == "SagitalSliceUpdate"
-    ]
-    post_handlers.append(SagitalSliceUpdate)
+    return SagitalPlane
 
 #############################################################################
 # SimpleITK vtk Image to Mesh Functions :
@@ -1882,7 +1928,7 @@ def add_square_cutter(context):
 
 ###########################################################################
 # Add BDENTAL MultiView :
-def BDENTAL_MultiView_Toggle():
+def BDENTAL_MultiView_Toggle(Preffix):
     
     WM = bpy.context.window_manager
     
@@ -1967,21 +2013,29 @@ def BDENTAL_MultiView_Toggle():
         
         if MultiView_Area3D.type == 'VIEW_3D' :
             MultiView_Space3D = [space for space in MultiView_Area3D.spaces if space.type == "VIEW_3D"][0]
-            
-            MultiView_Space3D.overlay.show_text = False
+
+            Override = {"window":MultiView_Window, 'screen':MultiView_Screen, 'area':MultiView_Area3D,'space_data':MultiView_Space3D}
+
+            bpy.ops.wm.tool_set_by_id(Override,name="builtin.move")
+            MultiView_Space3D.overlay.show_text = True
             MultiView_Space3D.show_region_ui = False
-            MultiView_Space3D.show_region_toolbar = False
+            MultiView_Space3D.show_region_toolbar = True
             MultiView_Space3D.region_3d.view_perspective = "ORTHO"
-            MultiView_Space3D.show_gizmo = False
+            MultiView_Space3D.show_gizmo_navigate = False 
             MultiView_Space3D.show_region_tool_header = False
             MultiView_Space3D.overlay.show_floor = False
             MultiView_Space3D.overlay.show_ortho_grid = False
             MultiView_Space3D.overlay.show_relationship_lines = False
-            MultiView_Space3D.overlay.show_extras = False
+            MultiView_Space3D.overlay.show_extras = True
             MultiView_Space3D.overlay.show_bones = False
             MultiView_Space3D.overlay.show_motion_paths = False
 
-
+            MultiView_Space3D.shading.type = 'SOLID'
+            MultiView_Space3D.shading.light = "STUDIO"
+            MultiView_Space3D.shading.studio_light = "outdoor.sl"
+            MultiView_Space3D.shading.color_type = "TEXTURE"
+            MultiView_Space3D.shading.background_type = 'VIEWPORT'
+            MultiView_Space3D.shading.background_color = [0.7, 0.7, 0.7]
             
             MultiView_Space3D.shading.type = 'MATERIAL'
             # 'Material' Shading Light method :
@@ -2000,12 +2054,7 @@ def BDENTAL_MultiView_Toggle():
 
             MultiView_Space3D.shading.render_pass = "COMBINED"
         
-            MultiView_Space3D.shading.type = 'SOLID'
-            MultiView_Space3D.shading.light = "STUDIO"
-            MultiView_Space3D.shading.studio_light = "outdoor.sl"
-            MultiView_Space3D.shading.color_type = "TEXTURE"
-            MultiView_Space3D.shading.background_type = 'VIEWPORT'
-            MultiView_Space3D.shading.background_color = [0.7, 0.7, 0.7]
+            
 
             MultiView_Space3D.show_region_header = False
     
@@ -2017,89 +2066,13 @@ def BDENTAL_MultiView_Toggle():
     SAGITAL = DownRight = MultiView_Screen.areas[2]
     VIEW_3D = DownMiddle = MultiView_Screen.areas[4]
 
+
+
 #    TopMiddle.header_text_set("AXIAL")
 #    TopRight.header_text_set("CORONAL")
 #    DownRight.header_text_set("SAGITAL")
 #    DownMiddle.header_text_set("3D VIEW")
     
     
-    return OUTLINER, PROPERTIES, AXIAL, CORONAL, SAGITAL, VIEW_3D
+    return MultiView_Window, OUTLINER, PROPERTIES, AXIAL, CORONAL, SAGITAL, VIEW_3D
 
-
-def BDENTAL_Quad_View():
-    Override_initial = {}
-    
-    MyScr = bpy.data.screens['Layout']
-    MyArea = [area for area in MyScr.areas if area.type == "VIEW_3D"][-1]
-    
-    Override_initial['window'] = bpy.context.window_manager.windows[0]
-    Override_initial['screen'] = MyScr
-    Override_initial["area"] = MyArea
-    
-    bpy.ops.screen.area_dupli(Override_initial, "INVOKE_DEFAULT")
-    
-    BDENTAL_Window = bpy.context.window_manager.windows[-1]
-    BDENTAL_Screen = BDENTAL_Window.screen
-    BDENTAL_Area_Zero = [area for area in BDENTAL_Screen.areas if area.type == "VIEW_3D"][0]
-    BDENTAL_Area_Zero_Space = [space for space in BDENTAL_Area_Zero.spaces if space.type == "VIEW_3D"][0]
-    BDENTAL_Area_Zero_Region = [reg for reg in BDENTAL_Area_Zero.regions if reg.type == "WINDOW"][0]
-    
-    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":BDENTAL_Area_Zero, "space_data":BDENTAL_Area_Zero_Space, "region":BDENTAL_Area_Zero_Region}
-
-    BDENTAL_Area_Zero_Space.show_region_ui = False
-    BDENTAL_Area_Zero_Space.show_region_toolbar = False
-    BDENTAL_Area_Zero_Space.show_region_header = False
-    BDENTAL_Area_Zero_Space.region_3d.view_perspective = "ORTHO"
-    BDENTAL_Area_Zero_Space.show_gizmo = False
-    BDENTAL_Area_Zero_Space.show_region_header = False
-    
-    # Vertical split 1 :
-    
-    bpy.ops.screen.area_split(Override, direction='VERTICAL', factor=1/3)
-
-    BDENTAL_Screen.areas[1].type = 'OUTLINER'
-    
-    # Horizontal split 1 :
-    BDENTAL_Window = bpy.context.window_manager.windows[-1]
-    BDENTAL_Screen = BDENTAL_Window.screen
-    Active_Area = BDENTAL_Screen.areas[0]
-    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
-    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
-    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
-    bpy.ops.screen.area_split(Override, direction='HORIZONTAL', factor=1/2)
-    
-    # Vertical split 2 :
-    BDENTAL_Window = bpy.context.window_manager.windows[-1]
-    BDENTAL_Screen = BDENTAL_Window.screen
-    Active_Area = BDENTAL_Screen.areas[0]
-    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
-    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
-    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
-    
-    bpy.ops.screen.area_split(Override, direction='VERTICAL',factor=1/2)
-
-    # Horizontal split 2 :
-    BDENTAL_Window = bpy.context.window_manager.windows[-1]
-    BDENTAL_Screen = BDENTAL_Window.screen
-    Active_Area = BDENTAL_Screen.areas[1]
-    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
-    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
-    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
-    
-    bpy.ops.screen.area_split(Override, direction='HORIZONTAL', factor=1/2)
-    
-    BDENTAL_Screen.areas[1].type = "VIEW_3D"
-    BDENTAL_Screen.areas[4].type = "VIEW_3D"
-    
-    # Vertical split 2 :
-    BDENTAL_Window = bpy.context.window_manager.windows[-1]
-    BDENTAL_Screen = BDENTAL_Window.screen
-    Active_Area = BDENTAL_Screen.areas[4]
-    Active_Space = [space for space in Active_Area.spaces if space.type == "VIEW_3D"][0]
-    Active_Region = [reg for reg in Active_Area.regions if reg.type == "WINDOW"][0]
-    Override = {"window":BDENTAL_Window, "screen":BDENTAL_Screen, "area":Active_Area, "space_data":Active_Space, "region":Active_Region}
-    
-    bpy.ops.screen.area_split(Override, direction='VERTICAL',factor=1/2)
-    
-    BDENTAL_Screen.areas[4].type = "PROPERTIES"
-    BDENTAL_Screen.areas[5].type = 'OUTLINER'
