@@ -137,7 +137,7 @@ class BDENTAL_Props(bpy.types.PropertyGroup):
 
     DcmInfo: StringProperty(
         name="(str) DicomInfo",
-        default="{}",
+        default="{'Deffault': None}",
         description="Dicom series files list",
     )
     #######################

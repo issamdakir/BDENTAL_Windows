@@ -166,19 +166,7 @@ def Load_Dicom_funtion(context, q):
             Preffix = f"BD{i:03}"
             if not Preffix in Preffixs :
                 break
-        ########################################################
-        # SceneVolumes = [obj for obj in bpy.context.scene.objects if obj.name.startswith("BD") and obj.name.endswith("_CTVolume")]
-        # if not SceneVolumes :
-        #     Preffix = 'BD001'
-        # else :
-        #     for i in range(1,100) :
-        #         Preffix = f"BD{i:03}"
-                
-        #         SceneVolPreffixs = [Vol.name[:5] for Vol in SceneVolumes]
-        #         if not Preffix in SceneVolPreffixs :
-        #             break
-        # CleanScanData(Preffix)
-        #################################################################
+        
         Split = split(UserProjectDir)
         ProjectName = (Split[-1] or Split[-2])
         BlendFile = f"{ProjectName}_CT-SCAN.blend"
@@ -863,24 +851,29 @@ class BDENTAL_OT_AddSlices(bpy.types.Operator):
                 bpy.context.scene.render.resolution_y = 512
 
                 [bpy.data.cameras.remove(cam) for cam in  bpy.data.cameras if f"{AxialPlane.name}_CAM" in cam.name]
-                Add_Cam_To_Plane(AxialPlane, CamDistance = 100, ClipOffset=1)
+                AxialCam = Add_Cam_To_Plane(AxialPlane, CamDistance = 100, ClipOffset=1)
+                MoveToCollection(obj=AxialCam, CollName="SLICES-CAMERAS")
 
                 [bpy.data.cameras.remove(cam) for cam in  bpy.data.cameras if f"{CoronalPlane.name}_CAM" in cam.name]
-                Add_Cam_To_Plane(CoronalPlane, CamDistance = 100, ClipOffset=1)
+                CoronalCam = Add_Cam_To_Plane(CoronalPlane, CamDistance = 100, ClipOffset=1)
+                MoveToCollection(obj=CoronalCam, CollName="SLICES-CAMERAS")
+
 
                 [bpy.data.cameras.remove(cam) for cam in  bpy.data.cameras if f"{SagitalPlane.name}_CAM" in cam.name]
-                Add_Cam_To_Plane(SagitalPlane, CamDistance = 100, ClipOffset=1)
+                SagitalCam = Add_Cam_To_Plane(SagitalPlane, CamDistance = 100, ClipOffset=1)
+                MoveToCollection(obj=SagitalCam, CollName="SLICES-CAMERAS")
+
 
                 for obj in bpy.data.objects :
-                    if obj.name == f"0_{Preffix}_SLICES" :
+                    if obj.name == f"{Preffix}_SLICES_POINTER" :
                         bpy.data.objects.remove(obj)
 
-                bpy.ops.object.empty_add(type='PLAIN_AXES', align='WORLD', location=AxialPlane, scale=(1, 1, 1))
-                EmptySlices = bpy.context.object
-                EmptySlices.empty_display_size = 20
-                EmptySlices.show_name = True
-                EmptySlices.show_in_front = True
-                EmptySlices.name = f"0_{Preffix}_SLICES"
+                bpy.ops.object.empty_add(type='PLAIN_AXES', align='WORLD', location=AxialPlane.location, scale=(1, 1, 1))
+                SLICES_POINTER = bpy.context.object
+                SLICES_POINTER.empty_display_size = 20
+                SLICES_POINTER.show_name = True
+                SLICES_POINTER.show_in_front = True
+                SLICES_POINTER.name = f"{Preffix}_SLICES_POINTER"
 
                 Override, _, _ = CtxOverride(bpy.context)
 
@@ -888,14 +881,13 @@ class BDENTAL_OT_AddSlices(bpy.types.Operator):
                 AxialPlane.select_set(True)
                 CoronalPlane.select_set(True)
                 SagitalPlane.select_set(True)
-                EmptySlices.select_set(True)
-                bpy.context.view_layer.objects.active = EmptySlices
+                SLICES_POINTER.select_set(True)
+                bpy.context.view_layer.objects.active = SLICES_POINTER
                 bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
-
-
-
-
-
+                bpy.ops.object.select_all(Override,action='DESELECT')
+                SLICES_POINTER.select_set(True)
+                bpy.context.view_layer.objects.active = SLICES_POINTER
+                MoveToCollection(obj=SLICES_POINTER, CollName="SLICES_POINTERS")
 
                 return {"FINISHED"}
 
@@ -1157,18 +1149,18 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
         counter_start = Tcounter()
         TerminalProgressBar = BDENTAL_Utils.TerminalProgressBar
         CV2_progress_bar = BDENTAL_Utils.CV2_progress_bar
-        self.t1 = threading.Thread(
+        t1 = threading.Thread(
             target=TerminalProgressBar, args=[self.q, counter_start], daemon=True
         )
-        self.t2 = threading.Thread(
+        t2 = threading.Thread(
             target=CV2_progress_bar, args=[self.q], daemon=True
         )
 
-        # self.t1.start()
-        self.t2.start()
+        # t1.start()
+        t2.start()
         self.DicomToMesh()
-        # self.t1.join()
-        self.t2.join()
+        # t1.join()
+        t2.join()
         # print("\n")
         # print(self.TimingDict)
 
@@ -1193,11 +1185,11 @@ class BDENTAL_OT_MultiView(bpy.types.Operator):
         else :
             Conditions = [  
                             not Active_Obj.name.startswith("BD"),
-                            not Active_Obj.name.endswith(("_CTVolume", "SEGMENTATION")),
+                            not Active_Obj.name.endswith(("_CTVolume", "SEGMENTATION", "_SLICES_POINTER")),
                             Active_Obj.select_get() == False,
                                                                      ]
             if Conditions[0] or Conditions[1] or Conditions[2] :
-                message = [" Please select CTVOLUME or SEGMENTATION ! "]
+                message = [" Please select CTVOLUME or SEGMENTATION or _SLICES_POINTER ! "]
                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
                 return {"CANCELLED"}    
             else :
@@ -1205,6 +1197,7 @@ class BDENTAL_OT_MultiView(bpy.types.Operator):
                 AxialPlane = bpy.data.objects.get(f"1_{Preffix}_AXIAL_SLICE")
                 CoronalPlane = bpy.data.objects.get(f"2_{Preffix}_CORONAL_SLICE")
                 SagitalPlane = bpy.data.objects.get(f"3_{Preffix}_SAGITAL_SLICE")
+                SLICES_POINTER = bpy.data.objects.get(f"{Preffix}_SLICES_POINTER")
 
                 if not AxialPlane or not CoronalPlane or not SagitalPlane :
                     message = [ "To Add Multi-View Window :",
@@ -1255,6 +1248,10 @@ class BDENTAL_OT_MultiView(bpy.types.Operator):
                     SAGITAL_Space3D.camera = SagitalCam
                     Override = {"window":MultiView_Window, 'screen':MultiView_Screen, 'area':SAGITAL,'space_data':SAGITAL_Space3D, 'region':SAGITAL_Region}
                     bpy.ops.view3d.view_camera(Override)
+
+                    bpy.ops.object.select_all(Override,action='DESELECT')
+                    SLICES_POINTER.select_set(True)
+                    bpy.context.view_layer.objects.active = SLICES_POINTER
 
 
         return {"FINISHED"}

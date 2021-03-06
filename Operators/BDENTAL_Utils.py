@@ -617,18 +617,22 @@ def Scene_Settings():
 @persistent
 def AxialSliceUpdate(scene):
     Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_AXIAL_SLICE")) ]
-    EmptySlices = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SLICES")) ]
+    SLICES_POINTER = [obj for obj in bpy.context.scene.objects if (obj.name.startswith('BD') and obj.name.endswith("_SLICES_POINTER")) ]
 
     if Planes :
         BDENTAL_Props = scene.BDENTAL_Props
         ActiveObject = bpy.context.view_layer.objects.active
         
         Condition1 = ActiveObject in Planes
-        Condition2 = ActiveObject in EmptySlices
-            
+        Condition2 = ActiveObject in SLICES_POINTER
+
+        if Condition1 :
+            Preffix = ActiveObject.name[2:7]
+        if Condition2 :
+            Preffix = ActiveObject.name[0:5]
         
         if Condition1 or Condition2:
-            Preffix = ActiveObject.name[2:7]
+            
             Plane = [obj for obj in Planes if Preffix in obj.name][0]
             DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
             DcmInfo = DcmInfoDict[Preffix]
@@ -705,18 +709,22 @@ def AxialSliceUpdate(scene):
 def CoronalSliceUpdate(scene):
     
     Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_CORONAL_SLICE")) ]
-    EmptySlices = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SLICES")) ]
+    SLICES_POINTER = [obj for obj in bpy.context.scene.objects if (obj.name.startswith('BD') and obj.name.endswith("_SLICES_POINTER")) ]
 
     if Planes :
         BDENTAL_Props = scene.BDENTAL_Props
         ActiveObject = bpy.context.view_layer.objects.active
         
         Condition1 = ActiveObject in Planes
-        Condition2 = ActiveObject in EmptySlices
-            
+        Condition2 = ActiveObject in SLICES_POINTER
+
+        if Condition1 :
+            Preffix = ActiveObject.name[2:7]
+        if Condition2 :
+            Preffix = ActiveObject.name[0:5]
         
         if Condition1 or Condition2:
-            Preffix = ActiveObject.name[2:7]
+            
             Plane = [obj for obj in Planes if Preffix in obj.name][0]
             DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
             DcmInfo = DcmInfoDict[Preffix]
@@ -795,18 +803,22 @@ def CoronalSliceUpdate(scene):
 def SagitalSliceUpdate(scene):
 
     Planes = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SAGITAL_SLICE")) ]
-    EmptySlices = [obj for obj in bpy.context.scene.objects if (obj.name[2:4]=='BD' and obj.name.endswith("_SLICES")) ]
+    SLICES_POINTER = [obj for obj in bpy.context.scene.objects if (obj.name.startswith('BD') and obj.name.endswith("_SLICES_POINTER")) ]
 
     if Planes :
         BDENTAL_Props = scene.BDENTAL_Props
         ActiveObject = bpy.context.view_layer.objects.active
         
         Condition1 = ActiveObject in Planes
-        Condition2 = ActiveObject in EmptySlices
-            
+        Condition2 = ActiveObject in SLICES_POINTER
+
+        if Condition1 :
+            Preffix = ActiveObject.name[2:7]
+        if Condition2 :
+            Preffix = ActiveObject.name[0:5]
         
         if Condition1 or Condition2:
-            Preffix = ActiveObject.name[2:7]
+            
             Plane = [obj for obj in Planes if Preffix in obj.name][0]
             DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
             DcmInfo = DcmInfoDict[Preffix]
@@ -901,6 +913,7 @@ def Add_Cam_To_Plane(Plane, CamDistance, ClipOffset):
     bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
     Cam.hide_set(True)
     Cam.select_set(False)
+    return Cam
 
 
 # def Add_Cam_To_Plane(Plane, CamView, Override, ActiveSpace):
