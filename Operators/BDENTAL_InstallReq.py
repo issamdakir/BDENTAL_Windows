@@ -80,7 +80,7 @@ def ReqInstall(REQ_DICT, REQ_ZIP_DIR, BDENTAL_Modules_DIR):
 
     if condition:
         os.chdir(REQ_ZIP_DIR)
-        for Pkg in os.listdir(REQ_ZIP_DIR) :
+        for Pkg in ZippedModuleFiles :
             shutil.unpack_archive(Pkg, BDENTAL_Modules_DIR)   
 
         print("Requirements installed from ARCHIVE!")
