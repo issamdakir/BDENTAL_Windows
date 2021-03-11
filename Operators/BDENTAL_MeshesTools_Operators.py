@@ -762,71 +762,141 @@ class BDENTAL_OT_clean_mesh(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        ####### Get model to clean #######
+
+        ActiveObj = context.active_object
+        condition = (ActiveObj and ActiveObj.type == 'MESH' and ActiveObj in bpy.context.selected_objects )
+
+        if not condition :
+
+            message = [" Please select the target object !"]
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+            return {"CANCELLED"}
+
+        else:
+            ####### Get model to clean #######
+            bpy.ops.object.mode_set(mode="OBJECT")
+            bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
+            Model = bpy.context.view_layer.objects.active
+            self.Model_name = Model.name
+            bpy.ops.object.select_all(action="DESELECT")
+            Model.select_set(True)
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.context.tool_settings.mesh_select_mode = (True, False, False)
+
+            ####### Fill Holes #######
+
+            bpy.ops.mesh.select_all(action="DESELECT")
+            bpy.ops.mesh.select_non_manifold()
+            bpy.ops.mesh.fill_holes(sides=100)
+            bpy.ops.mesh.quads_convert_to_tris(
+                quad_method="BEAUTY", ngon_method="BEAUTY"
+            )
+
+            ############ clean non_manifold borders ##############
+            bpy.ops.mesh.select_all(action="DESELECT")
+            bpy.ops.mesh.select_non_manifold()
+            bpy.ops.mesh.select_more()
+            bpy.ops.mesh.select_less()
+            bpy.ops.mesh.delete(type="FACE")
+
+            bpy.ops.mesh.select_non_manifold()
+            bpy.ops.mesh.select_less()
+            bpy.ops.mesh.delete(type="VERT")
+
+            ####### Fill Holes #######
+
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="DESELECT")
+            bpy.ops.mesh.select_non_manifold()
+            bpy.ops.mesh.fill_holes(sides=10)
+            bpy.ops.mesh.quads_convert_to_tris(
+                quad_method="BEAUTY", ngon_method="BEAUTY"
+            )
+            ####### Relax borders #######
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="DESELECT")
+            bpy.ops.mesh.select_non_manifold()
+            bpy.ops.mesh.remove_doubles(threshold=0.1)
+
+            bpy.ops.mesh.looptools_relax(
+                input="selected", interpolation="cubic", iterations="3", regular=True
+            )
+
+            ####### Make mesh consistent (face normals) #######
+
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.mesh.select_all(action="SELECT")
+            bpy.ops.mesh.normals_make_consistent(inside=False)
+            bpy.ops.mesh.select_all(action="DESELECT")
+            bpy.ops.object.mode_set(mode="OBJECT")
+            obj = bpy.data.objects.get(self.Model_name)
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+
+            print("Clean Mesh finished.")
+
+            return {"FINISHED"}
+
+class BDENTAL_OT_VoxelRemesh(bpy.types.Operator):
+    """ Voxel Remesh Operator """
+
+    bl_idname = "bdental.voxelremesh"
+    bl_label = "REMESH"
+    bl_options = {"REGISTER", "UNDO"}
+
+    VoxelSize: FloatProperty(
+        name="Voxel Size",
+        description="Remesh Voxel Size",
+        default=0.1,
+        min=0.0,
+        max=100.0,
+        soft_min=0.0,
+        soft_max=100.0,
+        step=10,
+        precision=1,
+    )
+
+    def execute(self, context):
+        ActiveObj = context.active_object
+        # get model to clean :
         bpy.ops.object.mode_set(mode="OBJECT")
-        bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
-        Model = bpy.context.view_layer.objects.active
-        self.Model_name = Model.name
-        bpy.ops.object.select_all(action="DESELECT")
-        Model.select_set(True)
-        bpy.ops.object.mode_set(mode="EDIT")
-        bpy.context.tool_settings.mesh_select_mode = (True, False, False)
+        ActiveObj.data.remesh_mode = 'VOXEL'
+        ActiveObj.data.remesh_voxel_size = self.VoxelSize
+        ActiveObj.data.use_remesh_fix_poles = True
+        ActiveObj.data.use_remesh_smooth_normals = True
+        ActiveObj.data.use_remesh_preserve_volume = True
 
-        ####### Fill Holes #######
-
-        bpy.ops.mesh.select_all(action="DESELECT")
-        bpy.ops.mesh.select_non_manifold()
-        bpy.ops.mesh.fill_holes(sides=100)
-        bpy.ops.mesh.quads_convert_to_tris(
-            quad_method="BEAUTY", ngon_method="BEAUTY"
-        )
-
-        ############ clean non_manifold borders ##############
-        bpy.ops.mesh.select_all(action="DESELECT")
-        bpy.ops.mesh.select_non_manifold()
-        bpy.ops.mesh.select_more()
-        bpy.ops.mesh.select_less()
-        bpy.ops.mesh.delete(type="FACE")
-
-        bpy.ops.mesh.select_non_manifold()
-        bpy.ops.mesh.select_less()
-        bpy.ops.mesh.delete(type="VERT")
-
-        ####### Fill Holes #######
-
-        bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.mesh.select_all(action="DESELECT")
-        bpy.ops.mesh.select_non_manifold()
-        bpy.ops.mesh.fill_holes(sides=10)
-        bpy.ops.mesh.quads_convert_to_tris(
-            quad_method="BEAUTY", ngon_method="BEAUTY"
-        )
-        ####### Relax borders #######
-        bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.mesh.select_all(action="DESELECT")
-        bpy.ops.mesh.select_non_manifold()
-        bpy.ops.mesh.remove_doubles(threshold=0.1)
-
-        bpy.ops.mesh.looptools_relax(
-            input="selected", interpolation="cubic", iterations="3", regular=True
-        )
-
-        ####### Make mesh consistent (face normals) #######
-
-        bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.mesh.select_all(action="SELECT")
-        bpy.ops.mesh.normals_make_consistent(inside=False)
-        bpy.ops.mesh.select_all(action="DESELECT")
-        bpy.ops.object.mode_set(mode="OBJECT")
-        obj = bpy.data.objects.get(self.Model_name)
-        obj.select_set(True)
-        bpy.context.view_layer.objects.active = obj
-
-        print("Clean Mesh finished.")
-
+        bpy.ops.object.voxel_remesh()
         return {"FINISHED"}
 
+    def invoke(self, context, event):
 
+        ActiveObj = context.active_object
+        if not ActiveObj :
+
+            message = [" Please select the target object !"]
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+            return {"CANCELLED"}
+            
+
+        else :
+
+            condition = (ActiveObj.type == 'MESH' and ActiveObj.select_get() == True )
+
+            if not condition :
+
+                message = [" Please select the target object !"]
+                ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+                return {"CANCELLED"}
+
+            else:
+                self.ActiveObj = ActiveObj
+                self.VoxelSize = 0.1
+                wm = context.window_manager
+                return wm.invoke_props_dialog(self)
 #######################################################################################
 ###################################### Cutters ########################################
 #######################################################################################
@@ -978,33 +1048,47 @@ class BDENTAL_OT_CurveCutterCut(bpy.types.Operator):
         CuttingTarget = bpy.data.objects[CuttingTargetName]
 
         # Get CurveCutter :
-        CurveCutterName = bpy.context.scene.BDENTAL_Props.CurveCutterNameProp
-        CurveCutter = bpy.data.objects[CurveCutterName]
+        bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.ops.object.select_all(action="DESELECT")
+
+        CurveCuttersList = [obj for obj in context.scene.objects if obj.type == 'CURVE' and obj.name.startswith("BDENTAL_CuttingCurve")]
+        CurveMeshesList = []
+        for CurveCutter in CurveCuttersList :
+            bpy.ops.object.select_all(action="DESELECT")
+            CurveCutter.select_set(True)
+            bpy.context.view_layer.objects.active = CurveCutter
+
+            # remove material :
+            for mat_slot in CurveCutter.material_slots:
+                bpy.ops.object.material_slot_remove()
+
+            # Change CurveCutter setting   :
+            bpy.context.object.data.bevel_depth = 0
+            bpy.context.object.data.offset = 0
+
+            # subdivide curve points :
+            bpy.ops.object.mode_set(mode="EDIT")
+            bpy.ops.curve.select_all(action="SELECT")
+            bpy.ops.curve.subdivide()
+
+            # convert CurveCutter to mesh :
+            bpy.ops.object.mode_set(mode="OBJECT")
+            bpy.ops.object.convert(target="MESH")
+            CurveMesh = context.object
+            CurveMeshesList.append(CurveMesh)
+
+        bpy.ops.object.select_all(action="DESELECT")
+        for obj in CurveMeshesList :
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+
+        bpy.ops.object.join()
+        CurveCutter = context.object
+
 
         bpy.context.tool_settings.mesh_select_mode = (True, False, False)
         bpy.context.scene.tool_settings.use_snap = False
         bpy.ops.view3d.snap_cursor_to_center()
-
-        bpy.ops.object.mode_set(mode="OBJECT")
-        bpy.ops.object.select_all(action="DESELECT")
-        CurveCutter.select_set(True)
-        bpy.context.view_layer.objects.active = CurveCutter
-        # remove material :
-        for mat_slot in CurveCutter.material_slots:
-            bpy.ops.object.material_slot_remove()
-
-        # Change CurveCutter setting   :
-        bpy.context.object.data.bevel_depth = 0
-        bpy.context.object.data.offset = 0
-
-        # subdivide curve points :
-        bpy.ops.object.mode_set(mode="EDIT")
-        bpy.ops.curve.select_all(action="SELECT")
-        bpy.ops.curve.subdivide()
-
-        # convert CurveCutter to mesh :
-        bpy.ops.object.mode_set(mode="OBJECT")
-        bpy.ops.object.convert(target="MESH")
 
         # Make vertex group :
         bpy.ops.object.mode_set(mode="EDIT")
@@ -1061,6 +1145,7 @@ class BDENTAL_OT_CurveCutterCut(bpy.types.Operator):
         bpy.ops.ed.undo_push()       
         # 1st methode :
         SplitSeparator(CuttingTarget=CuttingTarget)
+        PartsFilter()
         for obj in bpy.context.visible_objects:
             obj.vertex_groups.clear()
 
@@ -1601,6 +1686,7 @@ classes = [
     BDENTAL_OT_clean_mesh,
     BDENTAL_OT_fill,
     BDENTAL_OT_retopo_smooth,
+    BDENTAL_OT_VoxelRemesh,
     BDENTAL_OT_CurveCutterAdd,
     BDENTAL_OT_CurveCutterAdd2,
     BDENTAL_OT_CurveCutterCut,

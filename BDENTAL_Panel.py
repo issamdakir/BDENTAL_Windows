@@ -190,13 +190,17 @@ class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):
 
         col = split.column()
         row = col.row()
-        row.scale_y = 2
+        # row.scale_y = 2
         row.operator("bdental.clean_mesh", text="CLEAN MESH", icon="BRUSH_DATA")
+        row = col.row()
+        row.operator("bdental.voxelremesh")
+
+
 
         # Cutting Tools :
         layout.row().separator()
         row = layout.row()
-        row.label(text="Select Cutting Tool :")
+        row.label(text="Cutting Tools :", icon=yellow_point)
         row = layout.row()
         row.prop(BDENTAL_Props, "Cutting_Tools_Types_Prop", text="")
         if BDENTAL_Props.Cutting_Tools_Types_Prop == "Curve Cutter 1":

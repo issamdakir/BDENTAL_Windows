@@ -22,7 +22,7 @@
 # ##### END GPL LICENSE BLOCK #####
 ##############################################################################################
 bl_info = {
-    "name": "BDENTAL_Windows",  ###################Addon name
+    "name": "BDENTAL",  ###################Addon name
     "author": "Essaid Issam Dakir DMD",
     "version": (1, 0, 0),
     "blender": (2, 90, 1),  ################# Blender working version

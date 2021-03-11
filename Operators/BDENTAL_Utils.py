@@ -1,5 +1,5 @@
 # Python imports :
-import os, sys, shutil
+import os, sys, shutil, threading
 from os.path import join, dirname, exists,abspath
 
 from math import degrees, radians, pi
@@ -1450,6 +1450,24 @@ def vtkContourFilter(vtkImage, isovalue=0.0):
     mesh = vtk.vtkPolyData()
     mesh.DeepCopy(ContourFilter.GetOutput())
     return mesh
+def GuessTimeLoopFunc(signal, q):
+    _, Uptxt, Lowtxt, start, finish, periode = signal
+    i = 0
+    iterations = 10
+    while i < iterations and q.empty() :
+        ProgRatio = start + (((i + 1) / iterations) * (finish - start))
+        q.put(
+            [
+                "loop",
+                Uptxt,
+                "",
+                start,
+                finish,
+                ProgRatio,
+            ]
+        )
+        sleep(periode / iterations)
+        i+=1
 
 def CV2_progress_bar(q, iter=100):
     while True:
@@ -1463,25 +1481,50 @@ def CV2_progress_bar(q, iter=100):
                 break
             if "GuessTime" in signal[0]:
                 _, Uptxt, Lowtxt, start, finish, periode = signal
-                for i in range(iter):
-
-                    if q.empty():
-
-                        ratio = start + (((i + 1) / iter) * (finish - start))
-                        pourcentage = int(ratio * 100)
-                        progress_bar(pourcentage, Uptxt)
-                        sleep(periode / iter)
-                    else:
+                i = 0
+                iterations = 10
+                Delay = periode / iterations
+                while i < iterations :
+                    if q.empty() :
+                        ProgRatio = start + ( round(((i + 1) / iterations), 2) * (finish - start) )
+                        pourcentage = int(ProgRatio * 100)
+                        progress_bar(pourcentage, Uptxt, Delay = int(Delay*1000))
+                        sleep(Delay)
+                        i+=1
+                        print(pourcentage)
+                    else :
                         break
+                # t = threading.Thread(target=GuessTimeLoopFunc, args=[signal, q], daemon=True)
+                # t.start()
+                # t.join()
+                # while i < iterations and q.empty() :
+                #     ratio = start + (((i + 1) / iter) * (finish - start))
+                #     pourcentage = int(ratio * 100)
+                #     progress_bar(pourcentage, Uptxt)
+                #     sleep(periode / iter)
+
+                # iter = 5
+                # _, Uptxt, Lowtxt, start, finish, periode = signal
+                # for i in range(iter):
+
+                #     if q.empty():
+
+                #         ratio = start + (((i + 1) / iter) * (finish - start))
+                #         pourcentage = int(ratio * 100)
+                #         progress_bar(pourcentage, Uptxt)
+                #         sleep(periode / iter)
+                #     else:
+                #         break
 
             if "loop" in signal[0]:
                 _, Uptxt, Lowtxt, start, finish, progFloat = signal
                 ratio = start + (progFloat * (finish - start))
                 pourcentage = int(ratio * 100)
                 progress_bar(pourcentage, Uptxt)
+                print(pourcentage)
 
         else:
-            sleep(0.1)
+            sleep(0.01)
 
 def progress_bar(pourcentage, Uptxt, Lowtxt="", Title="BDENTAL", Delay=1):
 
@@ -1532,6 +1575,7 @@ def progress_bar(pourcentage, Uptxt, Lowtxt="", Title="BDENTAL", Delay=1):
     cv2.imshow(Title, img)
 
     cv2.waitKey(Delay)
+    
 
     if pourcentage == 100:
         img = BackGround.copy()
@@ -1566,6 +1610,7 @@ def progress_bar(pourcentage, Uptxt, Lowtxt="", Title="BDENTAL", Delay=1):
 #BDENTAL Meshes Tools Operators...........
 ######################################################
 def CuttingCurveAdd():
+    
     # Prepare scene settings :
     bpy.ops.transform.select_orientation(orientation="GLOBAL")
     bpy.context.scene.tool_settings.use_snap = True
@@ -1581,9 +1626,9 @@ def CuttingCurveAdd():
     )
     # Set cutting_tool name :
     CurveCutter = bpy.context.view_layer.objects.active
-    CurveCutter.name = "CuttingCurve"
+    CurveCutter.name = "BDENTAL_CuttingCurve_1"
     curve = CurveCutter.data
-    curve.name = "CuttingCurveMesh"
+    curve.name = "BDENTAL_CuttingCurve_1_Mesh"
     bpy.context.scene.BDENTAL_Props.CurveCutterNameProp = CurveCutter.name
 
     # CurveCutter settings :
@@ -1848,9 +1893,9 @@ def PartsFilter():
         bpy.data.objects.remove(obj)
 
     bpy.ops.object.select_all(action="SELECT")
-    resulting_parts = len(bpy.context.selected_objects)
+    # resulting_parts = len(bpy.context.selected_objects)
 
-    return resulting_parts
+    # return resulting_parts
 
 
 #######################################################################################

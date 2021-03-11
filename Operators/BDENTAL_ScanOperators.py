@@ -967,7 +967,8 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
 
     def DicomToMesh(self):
         counter_start = Tcounter()
-        self.q.put(["GuessTime", "PROGRESS : Extracting mesh...", "", 0.0, 0.1, 2])
+        
+        self.q.put(["GuessTime", "PROGRESS : Extracting mesh...", "", 0.01, 0.1, 2])
         # Load Infos :
         #########################################################################
         BDENTAL_Props = bpy.context.scene.BDENTAL_Props
@@ -1027,19 +1028,20 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
         step2 = Tcounter()
         self.TimingDict["extract mesh"] = step2 - step1
         # print(f"step 2 : extract mesh ({step2-step1})")
-
+        
         ############### step 3 : mesh Reduction... #########################
         if polysCount > polysLimit:
             # print(f"Hight polygons count, : ({polysCount}) Mesh will be reduced...")
             Reduction = round(1 - (polysLimit / polysCount), 2)
             # print(f"MESH REDUCTION: Ratio = ({Reduction}) ...")
+            
             ReductedMesh = vtkMeshReduction(
                 q=self.q,
                 mesh=Mesh,
                 reduction=Reduction,
                 step="Mesh Reduction",
-                start=0.1,
-                finish=0.7,
+                start=0.11,
+                finish=0.75,
             )
             Mesh = ReductedMesh
             # print(f"Reduced Mesh polygons count : {Mesh.GetNumberOfPolys()} ...")
@@ -1058,8 +1060,8 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
             mesh=Mesh,
             Iterations=SmthIter,
             step="Mesh Orientation",
-            start=0.7,
-            finish=0.75,
+            start=0.76,
+            finish=0.78,
         )
         step3 = Tcounter()
         # try:
@@ -1086,8 +1088,8 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
                 "GuessTime",
                 "PROGRESS : exporting mesh stl...",
                 "",
-                0.75,
-                0.8,
+                0.79,
+                0.83,
                 2,
             ]
         )
@@ -1106,7 +1108,7 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
         # print(f"step 6 : Export mesh ({step6-step5})")
 
         ############### step 7 : Importing mesh to Blender... #########################
-        self.q.put(["GuessTime", "PROGRESS : Importing mesh...", "", 0.8, 0.95, 8])
+        self.q.put(["GuessTime", "PROGRESS : Importing mesh...", "", 0.84, 0.97, 8])
 
         # print("IMPORTING...")
         # import stl to blender scene :
@@ -1121,7 +1123,7 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
         self.TimingDict["Import mesh"] = step7 - step6
         # print(f"step 7 : Import mesh({step7-step6})")
         ############### step 8 : Add material... #########################
-        self.q.put(["GuessTime", "PROGRESS : Add material...", "", 0.95, 0.99, 2])
+        self.q.put(["GuessTime", "PROGRESS : Add material...", "", 0.98, 0.99, 1])
 
         # print("ADD COLOR MATERIAL")
         mat = bpy.data.materials.get(obj.name) or bpy.data.materials.new(obj.name)
@@ -1147,11 +1149,11 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
 
     def execute(self, context):
         counter_start = Tcounter()
-        TerminalProgressBar = BDENTAL_Utils.TerminalProgressBar
+        # TerminalProgressBar = BDENTAL_Utils.TerminalProgressBar
         CV2_progress_bar = BDENTAL_Utils.CV2_progress_bar
-        t1 = threading.Thread(
-            target=TerminalProgressBar, args=[self.q, counter_start], daemon=True
-        )
+        # t1 = threading.Thread(
+        #     target=TerminalProgressBar, args=[self.q, counter_start], daemon=True
+        # )
         t2 = threading.Thread(
             target=CV2_progress_bar, args=[self.q], daemon=True
         )
