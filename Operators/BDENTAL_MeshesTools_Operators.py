@@ -660,7 +660,7 @@ class BDENTAL_OT_fill(bpy.types.Operator):
         
         if not Mode == "EDIT":
             bpy.ops.object.mode_set(mode="EDIT")
-
+        bpy.context.tool_settings.mesh_select_mode = (True, False, False)
         bpy.ops.mesh.edge_face_add()
         bpy.ops.mesh.subdivide(number_cuts=10)
         bpy.ops.mesh.subdivide(number_cuts=2)
@@ -1666,6 +1666,313 @@ class BDENTAL_OT_square_cut_exit(bpy.types.Operator):
 
         return {"FINISHED"}
 
+class BDENTAL_OT_PaintArea(bpy.types.Operator):
+    """ Vertex paint area context toggle """
+
+    bl_idname = "bdental.paintarea_toggle"
+    bl_label = "PAINT AREA"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        ActiveObj = context.active_object
+        if not ActiveObj :
+
+            message = [" Please select the target object !"]
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+            return {"CANCELLED"}
+            
+
+        else :
+
+            condition = (ActiveObj.type == 'MESH' and ActiveObj.select_get() == True )
+
+            if not condition :
+
+                message = [" Please select the target object !"]
+                ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+                return {"CANCELLED"}
+
+            else:
+
+                Override, area3D, space3D = CtxOverride(context)
+                bpy.ops.object.mode_set(mode='VERTEX_PAINT')
+                bpy.ops.wm.tool_set_by_id(name="builtin_brush.Draw")
+
+                DrawBrush = bpy.data.brushes.get('Draw')
+                DrawBrush.blend = 'MIX'
+                DrawBrush.color = (0.0,1.0,0.0)
+                DrawBrush.strength = 1.0
+                DrawBrush.use_frontface = True
+                DrawBrush.use_alpha = True
+                DrawBrush.stroke_method = 'SPACE'
+                DrawBrush.curve_preset = 'CUSTOM'
+                DrawBrush.cursor_color_add = (0.0, 0.0, 1.0, 0.9)
+                DrawBrush.use_cursor_overlay = True
+
+                bpy.context.tool_settings.vertex_paint.tool_slots[0].brush = DrawBrush
+
+                for vg in ActiveObj.vertex_groups :
+                    ActiveObj.vertex_groups.remove(vg)
+
+                for VC in ActiveObj.data.vertex_colors :
+                    ActiveObj.data.vertex_colors.remove(VC)   
+
+                ActiveObj.data.vertex_colors.new(name='BDENTAL_PaintCutter_VC')
+
+                return {"FINISHED"} 
+
+class BDENTAL_OT_PaintAreaPlus(bpy.types.Operator):
+    """ Vertex paint area Paint Plus toggle """
+
+    bl_idname = "bdental.paintarea_plus"
+    bl_label = "PLUS"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        
+        if not context.mode == 'PAINT_VERTEX' :
+
+            message = [" Please select the target object ", "and activate Vertex Paint mode !"]
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+            return {"CANCELLED"}
+            
+
+        else :
+            Override, area3D, space3D = CtxOverride(context)
+            bpy.ops.wm.tool_set_by_id(name="builtin_brush.Draw")
+            DrawBrush = bpy.data.brushes.get('Draw')
+            context.tool_settings.vertex_paint.tool_slots[0].brush = DrawBrush
+            DrawBrush.blend = 'MIX'
+            DrawBrush.color = (0.0,1.0,0.0)
+            DrawBrush.strength = 1.0
+            DrawBrush.use_frontface = True
+            DrawBrush.use_alpha = True
+            DrawBrush.stroke_method = 'SPACE'
+            DrawBrush.curve_preset = 'CUSTOM'
+            DrawBrush.cursor_color_add = (0.0, 0.0, 1.0, 0.9)
+            DrawBrush.use_cursor_overlay = True
+            space3D.show_region_header = False
+            space3D.show_region_header = True
+
+            return {"FINISHED"} 
+
+class BDENTAL_OT_PaintAreaMinus(bpy.types.Operator):
+    """ Vertex paint area Paint Minus toggle """
+
+    bl_idname = "bdental.paintarea_minus"
+    bl_label = "MINUS"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+
+        if not context.mode == 'PAINT_VERTEX' :
+
+            message = [" Please select the target object ", "and activate Vertex Paint mode !"]
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+            return {"CANCELLED"}
+            
+
+        else :
+            Override, area3D, space3D = CtxOverride(context)
+            bpy.ops.wm.tool_set_by_id(name="builtin_brush.Draw")
+            LightenBrush = bpy.data.brushes.get('Lighten')
+            context.tool_settings.vertex_paint.tool_slots[0].brush = LightenBrush
+            LightenBrush.blend = 'MIX'
+            LightenBrush.color = (1.0,1.0,1.0)
+            LightenBrush.strength = 1.0
+            LightenBrush.use_frontface = True
+            LightenBrush.use_alpha = True
+            LightenBrush.stroke_method = 'SPACE'
+            LightenBrush.curve_preset = 'CUSTOM'
+            LightenBrush.cursor_color_add = (1, 0.0, 0.0, 0.9)
+            LightenBrush.use_cursor_overlay = True
+            space3D.show_region_header = False
+            space3D.show_region_header = True
+
+            return {"FINISHED"} 
+
+class BDENTAL_OT_PaintCut(bpy.types.Operator):
+    """ Vertex paint Cut """
+
+    bl_idname = "bdental.paint_cut"
+    bl_label = "CUT"
+
+    Cut_Modes_List = ["Cut", "Make Copy (Shell)", "Remove Painted", "Keep Painted"]
+    items = []
+    for i in range(len(Cut_Modes_List)):
+        item = (str(Cut_Modes_List[i]), str(Cut_Modes_List[i]), str(""), int(i))
+        items.append(item)
+
+    Cut_Mode_Prop : EnumProperty(name="Cut Mode", items=items, description="Cut Mode", default="Cut")
+
+    def execute(self, context):
+
+        VertexPaintCut(mode=self.Cut_Mode_Prop)
+        bpy.ops.ed.undo_push(message='BDENTAL Paint Cutter')
+
+        return {"FINISHED"} 
+
+    def invoke(self, context, event):
+
+        if not context.mode == 'PAINT_VERTEX' :
+
+            message = [" Please select the target object ", "and activate Vertex Paint mode !"]
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+            return {"CANCELLED"}
+            
+
+        else :
+            
+            wm = context.window_manager
+            return wm.invoke_props_dialog(self)
+
+
+
+            
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    #     if event.type == "P":
+    #         if event.value == ("PRESS"):
+    #             print("P pressed")
+    #             context.tool_settings.vertex_paint.tool_slots[0].brush = bpy.data.brushes.get('Draw')
+    #             self.space3D.show_region_header = False
+    #             self.space3D.show_region_header = True
+    #             return {"PASS_THROUGH"}
+
+                
+    #     if event.type == "M":
+    #         if event.value == ("PRESS"):
+    #             print("M pressed")
+    #             context.tool_settings.vertex_paint.tool_slots[0].brush = bpy.data.brushes.get('Lighten')
+    #             self.space3D.show_region_header = False
+    #             self.space3D.show_region_header = True
+    #             return {"PASS_THROUGH"}
+                
+    #     if event.type == "RET":
+
+    #         bpy.ops.object.mode_set(mode='OBJECT')
+    #         for vg in self.ActiveObj.vertex_groups :
+    #             if vg.name.startswith('BDENTAL_PaintCutter') :
+    #                 self.ActiveObj.vertex_groups.remove(vg)
+    #         for VC in self.ActiveObj.data.vertex_colors :
+    #             if VC.name.startswith('BDENTAL_PaintCutter') :
+    #                 self.ActiveObj.data.vertex_colors.remove(VC)
+
+    #         return {"FINISHED"}
+
+    #     elif event.type == ("ESC"):
+    #         bpy.ops.object.mode_set(mode='OBJECT')
+    #         for vg in self.ActiveObj.vertex_groups :
+    #             if vg.name.startswith('BDENTAL_PaintCutter') :
+    #                 self.ActiveObj.vertex_groups.remove(vg)
+    #         for VC in self.ActiveObj.data.vertex_colors :
+    #             if VC.name.startswith('BDENTAL_PaintCutter') :
+    #                 self.ActiveObj.data.vertex_colors.remove(VC)
+            
+
+    #         return {"CANCELLED"}
+
+    #     else:
+    #         # allow navigation
+    #         return {"PASS_THROUGH"}
+
+    #     return {"RUNNING_MODAL"}
+
+
+    # def invoke(self, context, event):
+
+    #     self.ActiveObj = context.active_object
+    #     if not self.ActiveObj :
+
+    #         message = [" Please select the target object !"]
+    #         ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+    #         return {"CANCELLED"}
+            
+
+    #     else :
+
+    #         condition = (self.ActiveObj.type == 'MESH' and self.ActiveObj.select_get() == True )
+
+    #         if not condition :
+
+    #             message = [" Please select the target object !"]
+    #             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+    #             return {"CANCELLED"}
+
+    #         else:
+
+    #             self.Override, self.area3D, self.space3D = CtxOverride(context)
+    #             bpy.ops.object.mode_set(mode='VERTEX_PAINT')
+    #             bpy.ops.wm.tool_set_by_id(name="builtin_brush.Draw")
+
+    #             self.DrawBrush = bpy.data.brushes.get('Draw')
+    #             self.DrawBrush.blend = 'MIX'
+    #             self.DrawBrush.color = (0.0,1.0,0.0)
+    #             self.DrawBrush.strength = 1.0
+    #             self.DrawBrush.use_frontface = True
+    #             self.DrawBrush.use_alpha = True
+    #             self.DrawBrush.stroke_method = 'SPACE'
+    #             self.DrawBrush.curve_preset = 'CUSTOM'
+    #             self.DrawBrush.cursor_color_add = (0.0, 0.0, 1.0, 0.9)
+    #             self.DrawBrush.use_cursor_overlay = True
+
+
+
+
+
+    #             self.LightenBrush = bpy.data.brushes.get('Lighten')
+    #             self.LightenBrush.blend = 'MIX'
+    #             self.LightenBrush.color = (1.0,1.0,1.0)
+    #             self.LightenBrush.strength = 1.0
+    #             self.LightenBrush.use_frontface = True
+    #             self.LightenBrush.use_alpha = True
+    #             self.DrawBrush.stroke_method = 'SPACE'
+    #             self.DrawBrush.curve_preset = 'CUSTOM'
+    #             self.LightenBrush.cursor_color_add = (1, 0.0, 0.0, 0.9)
+    #             self.LightenBrush.use_cursor_overlay = True
+
+
+    #             self.VP_Slot = bpy.context.tool_settings.vertex_paint.tool_slots[0]
+
+    #             self.VP_Slot.brush = self.DrawBrush
+
+    #             for vg in self.ActiveObj.vertex_groups :
+    #                 self.ActiveObj.vertex_groups.remove(vg)
+
+    #             for VC in self.ActiveObj.data.vertex_colors :
+    #                 self.ActiveObj.data.vertex_colors.remove(VC)   
+
+    #             self.BDENTAL_PaintCutter_VC = self.ActiveObj.data.vertex_colors.new(name='BDENTAL_PaintCutter_VC')
+    #             context.window_manager.modal_handler_add(self)
+    #             return {"RUNNING_MODAL"}
+
+
+
+
+
+
+
+
 
 
 #################################################################################################
@@ -1694,6 +2001,10 @@ classes = [
     BDENTAL_OT_square_cut,
     BDENTAL_OT_square_cut_confirm,
     BDENTAL_OT_square_cut_exit,
+    BDENTAL_OT_PaintArea,
+    BDENTAL_OT_PaintAreaPlus,
+    BDENTAL_OT_PaintAreaMinus,
+    BDENTAL_OT_PaintCut,
 
 ]
 

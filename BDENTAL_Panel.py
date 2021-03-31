@@ -2,12 +2,12 @@ import bpy, os, sys
 from os.path import join, dirname, exists, abspath
 
 ADDON_DIR = dirname(abspath(__file__))
-Addon_Version_Path = join(ADDON_DIR, "Resources","BDENTAL_Version.txt")
-if exists(Addon_Version_Path) :
+Addon_Version_Path = join(ADDON_DIR, "Resources", "BDENTAL_Version.txt")
+if exists(Addon_Version_Path):
     with open(Addon_Version_Path, "r") as rf:
         lines = rf.readlines()
         Addon_Version_Date = lines[0].split(";")[0]
-else :
+else:
     Addon_Version_Date = "  "
 # Selected icons :
 red_icon = "COLORSET_01_VEC"
@@ -19,7 +19,8 @@ yellow_icon = "COLORSET_09_VEC"
 yellow_point = "KEYTYPE_KEYFRAME_VEC"
 blue_point = "KEYTYPE_BREAKDOWN_VEC"
 
-Wmin, Wmax  = -400, 3000
+Wmin, Wmax = -400, 3000
+
 
 class BDENTAL_PT_MainPanel(bpy.types.Panel):
     """ BDENTAL Main Panel"""
@@ -27,16 +28,11 @@ class BDENTAL_PT_MainPanel(bpy.types.Panel):
     bl_idname = "BDENTAL_PT_MainPanel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"  # blender 2.7 and lower = TOOLS
-    bl_category = "BDENT"
-    bl_label = "BDENTAL SCAN VIEWER"
+    bl_category = "BDENTAL"
+    bl_label = "BDENTAL"
     # bl_options = {"DEFAULT_CLOSED"}
 
     def draw(self, context):
-
-        # Model operation property group :
-        BDENTAL_Props = context.scene.BDENTAL_Props
-        GroupNodeName = BDENTAL_Props.GroupNodeName
-        VGS = bpy.data.node_groups.get(GroupNodeName)
 
         # Draw Addon UI :
         layout = self.layout
@@ -45,8 +41,28 @@ class BDENTAL_PT_MainPanel(bpy.types.Panel):
         row = box.row()
         row.alert = True
         row.alignment = "CENTER"
-        row.label(text=f"VERSION : {Addon_Version_Date}")
-        layout.separator()
+        row.label(text=f"WINDOWS VERSION : {Addon_Version_Date}")
+
+
+class BDENTAL_PT_ScanPanel(bpy.types.Panel):
+    """ BDENTAL Scan Panel"""
+
+    bl_idname = "BDENTAL_PT_ScanPanel"
+    bl_space_type = "VIEW_3D"
+    bl_region_type = "UI"  # blender 2.7 and lower = TOOLS
+    bl_category = "BDENTAL"
+    bl_label = "SCAN VIEWER"
+    bl_options = {"DEFAULT_CLOSED"}
+
+    def draw(self, context):
+
+        BDENTAL_Props = context.scene.BDENTAL_Props
+        GroupNodeName = BDENTAL_Props.GroupNodeName
+        VGS = bpy.data.node_groups.get(GroupNodeName)
+
+        # Draw Addon UI :
+        layout = self.layout
+
         row = layout.row()
         row.prop(BDENTAL_Props, "UserProjectDir", text="Project Directory")
 
@@ -64,53 +80,37 @@ class BDENTAL_PT_MainPanel(bpy.types.Panel):
                     row = Box.row()
                     row.alignment = "CENTER"
                     row.scale_y = 2
-                    row.operator(
-                        "bdental.volume_render", icon="IMPORT"
-                    )
-                    
-                    row = layout.row()
-                    row.label(text=f"Threshold {Wmin} to {Wmax} HU:")
-                    row = layout.row()
-                    row.prop(
-                        BDENTAL_Props, "Treshold", text="TRESHOLD", slider=True
-                    )
-
-                    row = layout.row()
-                    row.operator("bdental.tresh_segment")
-                    row = layout.row()
-                    row.operator("bdental.addslices", icon="EMPTY_AXIS")
-                    row.operator("bdental.multiview")
-
-
+                    row.operator("bdental.volume_render", icon="IMPORT")
             if BDENTAL_Props.DataType == "3D Image File":
 
                 row = layout.row()
                 row.prop(BDENTAL_Props, "UserImageFile", text="File Path")
 
                 if BDENTAL_Props.UserImageFile:
-                    
+
                     Box = layout.box()
                     # Box.alert = True
                     row = Box.row()
                     row.alignment = "CENTER"
                     row.scale_y = 2
-                    row.operator(
-                        "bdental.volume_render", icon="IMPORT"
-                    )
-                    
-                    row = layout.row()
-                    row.label(text=f"Threshold {Wmin} to {Wmax} HU:")
-                    row = layout.row()
-                    row.prop(
-                        BDENTAL_Props, "Treshold", text="TRESHOLD", slider=True
-                    )
+                    row.operator("bdental.volume_render", icon="IMPORT")
+        if context.object:
+            if context.object.name.startswith("BD") and context.object.name.endswith(
+                "CTVolume"
+            ):
+                row = layout.row()
+                row.label(text=f"Threshold {Wmin} to {Wmax} HU:")
+                row = layout.row()
+                row.prop(BDENTAL_Props, "Treshold", text="TRESHOLD", slider=True)
 
-                    row = layout.row()
-                    row.operator("bdental.tresh_segment")
-                    row = layout.row()
-                    row.operator("bdental.addslices", icon="EMPTY_AXIS")
-                    row.operator("bdental.multiview")
-
+                row = layout.row()
+                row.operator("bdental.tresh_segment")
+            if context.object.name.startswith("BD") and context.object.name.endswith(
+                ("CTVolume", "SEGMENTATION")
+            ):
+                row = layout.row()
+                row.operator("bdental.addslices", icon="EMPTY_AXIS")
+                row.operator("bdental.multiview")
 
 
 class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):
@@ -119,7 +119,7 @@ class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):
     bl_idname = "BDENTAL_PT_MeshesTools_Panel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"  # blender 2.7 and lower = TOOLS
-    bl_category = "BDENT"
+    bl_category = "BDENTAL"
     bl_label = "MESH TOOLS"
     bl_options = {"DEFAULT_CLOSED"}
 
@@ -133,24 +133,20 @@ class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):
         row.label(text="PARENT / JOIN :")
         row = layout.row()
         row.operator("bdental.parent_object", text="Parent", icon="LINKED")
-        row.operator("bdental.unparent_objects", text="Un-Parent", icon="LIBRARY_DATA_OVERRIDE")
+        row.operator(
+            "bdental.unparent_objects", text="Un-Parent", icon="LIBRARY_DATA_OVERRIDE"
+        )
         row.operator("bdental.join_objects", text="Join", icon="SNAP_FACE")
         row.operator("bdental.separate_objects", text="Separate", icon="SNAP_VERTEX")
-                    
+
         # Align Tools :
         layout.row().separator()
         row = layout.row()
         row.label(text="Align Tools")
         row = layout.row()
-        row.operator(
-            "bdental.align_to_front", text="ALIGN FRONT", icon="AXIS_FRONT"
-        )
-        row.operator(
-            "bdental.to_center", text="TO CENTER", icon="SNAP_FACE_CENTER"
-        )
-        row.operator(
-            "bdental.center_cursor", text="Center Cursor", icon="PIVOT_CURSOR"
-        )
+        row.operator("bdental.align_to_front", text="ALIGN FRONT", icon="AXIS_FRONT")
+        row.operator("bdental.to_center", text="TO CENTER", icon="SNAP_FACE_CENTER")
+        row.operator("bdental.center_cursor", text="Center Cursor", icon="PIVOT_CURSOR")
 
         split = layout.split(factor=2 / 3, align=False)
         col = split.column()
@@ -161,7 +157,6 @@ class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):
         row.alert = True
         row.operator("bdental.occlusalplaneinfo", text="INFO", icon="INFO")
 
-
         # Model Repair Tools :
         layout.row().separator()
         row = layout.row()
@@ -171,20 +166,18 @@ class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):
         col = split.column()
 
         row = col.row(align=True)
-        row.operator(
-            "bdental.decimate", text="DECIMATE", icon="MOD_DECIM"
-        )
+        row.operator("bdental.decimate", text="DECIMATE", icon="MOD_DECIM")
         row.prop(BDENTAL_Props, "decimate_ratio", text="")
         row = col.row()
         row.operator("bdental.fill", text="FILL", icon="OUTLINER_OB_LIGHTPROBE")
-        row.operator(
-            "bdental.retopo_smooth", text="RETOPO SMOOTH", icon="BRUSH_SMOOTH"
-        )
+        row.operator("bdental.retopo_smooth", text="RETOPO SMOOTH", icon="BRUSH_SMOOTH")
         try:
             ActiveObject = bpy.context.view_layer.objects.active
-            if ActiveObject :
+            if ActiveObject:
                 if ActiveObject.mode == "SCULPT":
-                    row.operator("sculpt.sample_detail_size", text="", icon="EYEDROPPER")
+                    row.operator(
+                        "sculpt.sample_detail_size", text="", icon="EYEDROPPER"
+                    )
         except Exception:
             pass
 
@@ -194,8 +187,6 @@ class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):
         row.operator("bdental.clean_mesh", text="CLEAN MESH", icon="BRUSH_DATA")
         row = col.row()
         row.operator("bdental.voxelremesh")
-
-
 
         # Cutting Tools :
         layout.row().separator()
@@ -225,6 +216,15 @@ class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):
             row.operator("bdental.square_cut_confirm")
             row.operator("bdental.square_cut_exit")
 
+        elif BDENTAL_Props.Cutting_Tools_Types_Prop == "Paint Cutter":
+
+            row = layout.row()
+            row.operator("bdental.paintarea_toggle")
+            row.operator("bdental.paintarea_plus", text="", icon="ADD")
+            row.operator("bdental.paintarea_minus", text="", icon="REMOVE")
+            row = layout.row()
+            row.operator("bdental.paint_cut")
+
 
 #################################################################################################
 # Registration :
@@ -232,6 +232,7 @@ class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):
 
 classes = [
     BDENTAL_PT_MainPanel,
+    BDENTAL_PT_ScanPanel,
     BDENTAL_PT_MeshesTools_Panel,
 ]
 

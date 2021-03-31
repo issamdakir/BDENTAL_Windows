@@ -4,7 +4,7 @@ import numpy as np
 from time import sleep, perf_counter as Tcounter
 from queue import Queue
 from os.path import join, dirname, abspath, exists, split
-from importlib import reload  
+from importlib import reload
 
 # Blender Imports :
 import bpy
@@ -21,6 +21,7 @@ from bpy.props import (
 import SimpleITK as sitk
 import vtk
 import cv2
+
 # try :
 #     cv2 = reload(cv2)
 # except ImportError :
@@ -34,8 +35,7 @@ from . import BDENTAL_Utils
 from .BDENTAL_Utils import *
 
 addon_dir = dirname(dirname(abspath(__file__)))
-ShadersBlendFile = join(
-    addon_dir, "Resources", "BlendData", "BDENTAL_BlendData.blend")
+ShadersBlendFile = join(addon_dir, "Resources", "BlendData", "BDENTAL_BlendData.blend")
 GpShader = "VGS_Marcos_modified"  # "VGS_Marcos_01" "VGS_Dakir_01"
 Wmin = -400
 Wmax = 3000
@@ -51,7 +51,8 @@ def rmtree(top):
             os.remove(filename)
         for name in dirs:
             os.rmdir(os.path.join(root, name))
-    os.rmdir(top)  
+    os.rmdir(top)
+
 
 # class BDENTAL_OT_Uninstall(bpy.types.Operator):
 #     """ Uninstall Addon """
@@ -89,8 +90,8 @@ def rmtree(top):
 #                 # except Exception as Er :
 #                 #     print(Er)
 #                 #     print('BDENTAL Addon could not be uninstalled !')
-            
-                
+
+
 #         return {"FINISHED"}
 
 
@@ -101,7 +102,7 @@ def GetMaxSerie(UserDcmDir):
     series_IDs = Series_reader.GetGDCMSeriesIDs(UserDcmDir)
 
     if not series_IDs:
-        
+
         message = ["No valid DICOM Serie found in DICOM Folder ! "]
         print(message)
         ShowMessageBox(message=message, icon="COLORSET_01_VEC")
@@ -128,6 +129,7 @@ def GetMaxSerie(UserDcmDir):
     MaxCount = sorted(SeriesDict, reverse=True)[0]
     MaxSerie = SeriesDict[MaxCount]
     return MaxSerie, MaxCount
+
 
 def Load_Dicom_funtion(context, q):
 
@@ -162,19 +164,19 @@ def Load_Dicom_funtion(context, q):
         DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
         Preffixs = list(DcmInfoDict.keys())
 
-        for i in range(1,100) :
+        for i in range(1, 100):
             Preffix = f"BD{i:03}"
-            if not Preffix in Preffixs :
+            if not Preffix in Preffixs:
                 break
-        
+
         Split = split(UserProjectDir)
-        ProjectName = (Split[-1] or Split[-2])
+        ProjectName = Split[-1] or Split[-2]
         BlendFile = f"{ProjectName}_CT-SCAN.blend"
         Blendpath = join(UserProjectDir, BlendFile)
-        
+
         if not exists(Blendpath) or bpy.context.blend_data.filepath == Blendpath:
             bpy.ops.wm.save_as_mainfile(filepath=Blendpath)
-        else :
+        else:
             bpy.ops.wm.save_mainfile()
 
         # Start Reading Dicom data :
@@ -247,23 +249,24 @@ def Load_Dicom_funtion(context, q):
         # Set DcmInfo :
 
         DcmInfo = {
-                "UserProjectDir":RelPath(UserProjectDir),
-                "Preffix":Preffix,
-                "RenderSz":Sz,
-                "RenderSp":Sp,
-                "PixelType": Image3D.GetPixelIDTypeAsString(),
-                "Wmin": Wmin,
-                "Wmax": Wmax,
-                "Size": Sz,
-                "Dims": Dims,
-                "Spacing": Sp,
-                "Origin": Origin,
-                "Direction": Direction,
-                "TransformMatrix": TransformMatrix,
-                "DirectionMatrix_4x4": DirectionMatrix_4x4,
-                "TransMatrix_4x4": TransMatrix_4x4,
-                "VtkTransform_4x4": VtkTransform_4x4,
-                "VolumeCenter": VCenter}
+            "UserProjectDir": RelPath(UserProjectDir),
+            "Preffix": Preffix,
+            "RenderSz": Sz,
+            "RenderSp": Sp,
+            "PixelType": Image3D.GetPixelIDTypeAsString(),
+            "Wmin": Wmin,
+            "Wmax": Wmax,
+            "Size": Sz,
+            "Dims": Dims,
+            "Spacing": Sp,
+            "Origin": Origin,
+            "Direction": Direction,
+            "TransformMatrix": TransformMatrix,
+            "DirectionMatrix_4x4": DirectionMatrix_4x4,
+            "TransMatrix_4x4": TransMatrix_4x4,
+            "VtkTransform_4x4": VtkTransform_4x4,
+            "VolumeCenter": VCenter,
+        }
 
         tags = {
             "StudyDate": "0008|0020",
@@ -277,7 +280,7 @@ def Load_Dicom_funtion(context, q):
 
             if tag in reader.GetMetaDataKeys():
                 v = reader.GetMetaData(tag)
-                
+
             else:
                 v = ""
 
@@ -303,7 +306,7 @@ def Load_Dicom_funtion(context, q):
             os.makedirs(PngDir)
 
         Nrrd255Path = join(UserProjectDir, f"{Preffix}_Image3D255.nrrd")
-       
+
         DcmInfo["Nrrd255Path"] = RelPath(Nrrd255Path)
 
         #######################################################################################
@@ -325,9 +328,7 @@ def Load_Dicom_funtion(context, q):
 
         ################################## debug_03 ######################################
         debug_03 = Tcounter()
-        message = (
-            f"Nrrd255 Export done!  (Time : {debug_03-debug_02} secondes)"
-        )
+        message = f"Nrrd255 Export done!  (Time : {debug_03-debug_02} secondes)"
         print(message)
         # q.put("nrrd 3D image file saved...")
         ##################################################################################
@@ -352,11 +353,11 @@ def Load_Dicom_funtion(context, q):
             Image3D_255 = ResizeImage(sitkImage=Image3D_255, Ratio=SampleRatio)
             DcmInfo["RenderSz"] = Image3D_255.GetSize()
             DcmInfo["RenderSp"] = Image3D_255.GetSpacing()
-            
+
         Array = sitk.GetArrayFromImage(Image3D_255)
         slices = [np.flipud(Array[i, :, :]) for i in range(Array.shape[0])]
         # slices = [Image3D_255[:, :, i] for i in range(Image3D_255.GetDepth())]
-        
+
         threads = [
             threading.Thread(
                 target=Image3DToPNG,
@@ -389,7 +390,7 @@ def Load_Dicom_funtion(context, q):
         # print(message)
         # # q.put("PNG images saved...")
         # ##################################################################################
-        
+
         # #################################### debug_05 ####################################
         # debug_05 = Tcounter()
         # message = f"{Preffix}_CT-SCAN.blend saved (Time = {debug_05-debug_04} secondes)"
@@ -410,11 +411,11 @@ def Load_Dicom_funtion(context, q):
     ####### End Load_Dicom_fuction ##############
 
 
-
 #######################################################################################
 # BDENTAL CT Scan 3DImage File Load :
 
-def Load_3DImage_function(context,q):
+
+def Load_3DImage_function(context, q):
 
     BDENTAL_Props = context.scene.BDENTAL_Props
     UserProjectDir = AbsPath(BDENTAL_Props.UserProjectDir)
@@ -430,7 +431,7 @@ def Load_3DImage_function(context,q):
 
     if not exists(UserImageFile):
         message = [" The Selected Image File Path is not valid ! "]
-        
+
         ShowMessageBox(message=message, icon="COLORSET_02_VEC")
         return {"CANCELLED"}
 
@@ -439,7 +440,9 @@ def Load_3DImage_function(context,q):
     FileExt = os.path.splitext(UserImageFile)[1]
 
     if not IO:
-        message = [f"{FileExt} files are not Supported! for more info about supported files please refer to Addon wiki "]
+        message = [
+            f"{FileExt} files are not Supported! for more info about supported files please refer to Addon wiki "
+        ]
         ShowMessageBox(message=message, icon="COLORSET_01_VEC")
         return {"CANCELLED"}
 
@@ -447,21 +450,28 @@ def Load_3DImage_function(context,q):
     Depth = Image3D.GetDepth()
 
     if Depth == 0:
-        message = ["Can't Build 3D Volume from 2D Image !", "for more info about supported files,", "please refer to Addon wiki"]
+        message = [
+            "Can't Build 3D Volume from 2D Image !",
+            "for more info about supported files,",
+            "please refer to Addon wiki",
+        ]
         ShowMessageBox(message=message, icon="COLORSET_01_VEC")
         return {"CANCELLED"}
 
     ImgFileName = os.path.split(UserImageFile)[1]
     BDENTAL_nrrd = HU_Image = False
-    if ImgFileName.startswith("BD") and ImgFileName.endswith("_Image3D255.nrrd") :
+    if ImgFileName.startswith("BD") and ImgFileName.endswith("_Image3D255.nrrd"):
         BDENTAL_nrrd = True
     if Image3D.GetPixelIDTypeAsString() in [
         "32-bit signed integer",
-        "16-bit signed integer"]:
+        "16-bit signed integer",
+    ]:
         HU_Image = True
 
-    if not BDENTAL_nrrd and not HU_Image :
-        message = ["Only Images with Hunsfield data or BDENTAL nrrd images are supported !"]
+    if not BDENTAL_nrrd and not HU_Image:
+        message = [
+            "Only Images with Hunsfield data or BDENTAL nrrd images are supported !"
+        ]
         ShowMessageBox(message=message, icon="COLORSET_01_VEC")
         return {"CANCELLED"}
     ###########################################################################################################
@@ -474,19 +484,19 @@ def Load_3DImage_function(context,q):
         DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
         Preffixs = list(DcmInfoDict.keys())
 
-        for i in range(1,100) :
+        for i in range(1, 100):
             Preffix = f"BD{i:03}"
-            if not Preffix in Preffixs :
+            if not Preffix in Preffixs:
                 break
         ########################################################
         Split = split(UserProjectDir)
-        ProjectName = (Split[-1] or Split[-2])
+        ProjectName = Split[-1] or Split[-2]
         BlendFile = f"{ProjectName}_CT-SCAN.blend"
         Blendpath = join(UserProjectDir, BlendFile)
-        
+
         if not exists(Blendpath) or bpy.context.blend_data.filepath == Blendpath:
             bpy.ops.wm.save_as_mainfile(filepath=Blendpath)
-        else :
+        else:
             bpy.ops.wm.save_mainfile()
         Image3D = sitk.ReadImage(UserImageFile)
 
@@ -548,10 +558,10 @@ def Load_3DImage_function(context,q):
         # Set DcmInfo :
 
         DcmInfo = {
-            "UserProjectDir":RelPath(UserProjectDir),
-            "Preffix":Preffix,
-            "RenderSz":Sz,
-            "RenderSp":Sp,
+            "UserProjectDir": RelPath(UserProjectDir),
+            "Preffix": Preffix,
+            "RenderSz": Sz,
+            "RenderSp": Sp,
             "PixelType": Image3D.GetPixelIDTypeAsString(),
             "Wmin": Wmin,
             "Wmax": Wmax,
@@ -564,7 +574,8 @@ def Load_3DImage_function(context,q):
             "DirectionMatrix_4x4": DirectionMatrix_4x4,
             "TransMatrix_4x4": TransMatrix_4x4,
             "VtkTransform_4x4": VtkTransform_4x4,
-            "VolumeCenter": VCenter}
+            "VolumeCenter": VCenter,
+        }
 
         tags = {
             "StudyDate": "0008|0020",
@@ -579,7 +590,7 @@ def Load_3DImage_function(context,q):
 
             if tag in reader.GetMetaDataKeys():
                 v = reader.GetMetaData(tag)
-                
+
             else:
                 v = ""
 
@@ -598,14 +609,14 @@ def Load_3DImage_function(context,q):
             os.makedirs(PngDir)
 
         Nrrd255Path = join(UserProjectDir, f"{Preffix}_Image3D255.nrrd")
-    
+
         DcmInfo["Nrrd255Path"] = RelPath(Nrrd255Path)
-        
-        if BDENTAL_nrrd :
+
+        if BDENTAL_nrrd:
             Image3D_255 = Image3D
-            
-        else :
-        #######################################################################################
+
+        else:
+            #######################################################################################
             # set IntensityWindowing  :
             Image3D_255 = sitk.Cast(
                 sitk.IntensityWindowing(
@@ -642,11 +653,11 @@ def Load_3DImage_function(context,q):
             Image3D_255 = ResizeImage(sitkImage=Image3D_255, Ratio=SampleRatio)
             DcmInfo["RenderSz"] = Image3D_255.GetSize()
             DcmInfo["RenderSp"] = Image3D_255.GetSpacing()
-        
+
         Array = sitk.GetArrayFromImage(Image3D_255)
         slices = [np.flipud(Array[i, :, :]) for i in range(Array.shape[0])]
         # slices = [Image3D_255[:, :, i] for i in range(Image3D_255.GetDepth())]
-        
+
         threads = [
             threading.Thread(
                 target=Image3DToPNG,
@@ -665,7 +676,7 @@ def Load_3DImage_function(context,q):
         # os.removedirs(PngDir)
         shutil.rmtree(PngDir)
         DcmInfo["CT_Loaded"] = True
-        
+
         # Set DcmInfo property :
         DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
         DcmInfoDict[Preffix] = DcmInfo
@@ -677,8 +688,9 @@ def Load_3DImage_function(context,q):
         finish = Tcounter()
         print(f"Data Loaded in {finish-start} second(s)")
         #############################################################################################
-        
+
         return DcmInfo
+
 
 ##########################################################################################
 ######################### BDENTAL Volume Render : ########################################
@@ -691,7 +703,6 @@ class BDENTAL_OT_Volume_Render(bpy.types.Operator):
 
     q = Queue()
 
-
     def execute(self, context):
 
         Start = Tcounter()
@@ -701,13 +712,13 @@ class BDENTAL_OT_Volume_Render(bpy.types.Operator):
         global GpShader
 
         BDENTAL_Props = context.scene.BDENTAL_Props
-        
+
         DataType = BDENTAL_Props.DataType
-        if DataType == "DICOM Series" :
+        if DataType == "DICOM Series":
             DcmInfo = Load_Dicom_funtion(context, self.q)
-        if DataType == "3D Image File" :
-            DcmInfo = Load_3DImage_function(context,self.q)
-        
+        if DataType == "3D Image File":
+            DcmInfo = Load_3DImage_function(context, self.q)
+
         UserProjectDir = AbsPath(BDENTAL_Props.UserProjectDir)
         Preffix = DcmInfo["Preffix"]
         Wmin = DcmInfo["Wmin"]
@@ -742,12 +753,9 @@ class BDENTAL_OT_Volume_Render(bpy.types.Operator):
         if GpShader == "VGS_Dakir_01":
             # Add Treshold Driver :
             GpNode = bpy.data.node_groups.get(f"{Preffix}_{GpShader}")
-            value = (600-Wmin)/(Wmax-Wmin) 
+            value = (600 - Wmin) / (Wmax - Wmin)
             treshramp = GpNode.nodes["TresholdRamp"].color_ramp.elements[0] = value
 
-        
-            
-            
             # newdriver = treshramp.driver_add("position")
             # newdriver.driver.type = "SCRIPTED"
             # var = newdriver.driver.variables.new()
@@ -770,7 +778,6 @@ class BDENTAL_OT_Volume_Render(bpy.types.Operator):
         # ]
         # post_handlers.append(BDENTAL_TresholdUpdate)
 
-
         # bpy.ops.wm.save_mainfile()
 
         Finish = Tcounter()
@@ -779,13 +786,14 @@ class BDENTAL_OT_Volume_Render(bpy.types.Operator):
 
         return {"FINISHED"}
 
+
 class BDENTAL_OT_TresholdUpdate(bpy.types.Operator):
     """ Add treshold Update Handler  """
 
     bl_idname = "bdental.tresholdupdate"
     bl_label = "Update Treshold"
 
-    def execute(self, context):    
+    def execute(self, context):
         post_handlers = bpy.app.handlers.depsgraph_update_post
         [
             post_handlers.remove(h)
@@ -795,11 +803,12 @@ class BDENTAL_OT_TresholdUpdate(bpy.types.Operator):
         post_handlers.append(BDENTAL_TresholdUpdate)
 
         return {"FINISHED"}
-    
+
 
 ##########################################################################################
 ######################### BDENTAL Add Slices : ########################################
 ##########################################################################################
+
 
 class BDENTAL_OT_AddSlices(bpy.types.Operator):
     """ Add Volume Slices """
@@ -811,22 +820,22 @@ class BDENTAL_OT_AddSlices(bpy.types.Operator):
         BDENTAL_Props = bpy.context.scene.BDENTAL_Props
 
         Active_Obj = bpy.context.view_layer.objects.active
-        
-        if not Active_Obj :                
+
+        if not Active_Obj:
             message = [" Please select CTVOLUME or SEGMENTATION ! "]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
             return {"CANCELLED"}
-        else :
-            Conditions = [  
-                            not Active_Obj.name.startswith("BD"),
-                            not Active_Obj.name.endswith(("_CTVolume", "SEGMENTATION")),
-                            Active_Obj.select_get() == False,
-                                                                     ]
-            if Conditions[0] or Conditions[1] or Conditions[2] :
+        else:
+            Conditions = [
+                not Active_Obj.name.startswith("BD"),
+                not Active_Obj.name.endswith(("_CTVolume", "SEGMENTATION")),
+                Active_Obj.select_get() == False,
+            ]
+            if Conditions[0] or Conditions[1] or Conditions[2]:
                 message = [" Please select CTVOLUME or SEGMENTATION ! "]
                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
-                return {"CANCELLED"}    
-            else :
+                return {"CANCELLED"}
+            else:
                 Vol = Active_Obj
                 Preffix = Vol.name[:5]
                 DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
@@ -844,31 +853,50 @@ class BDENTAL_OT_AddSlices(bpy.types.Operator):
 
                 SagitalPlane = AddSagitalSlice(Preffix, DcmInfo)
                 MoveToCollection(obj=SagitalPlane, CollName="SLICES")
-                
+
                 # Add Cameras :
 
                 bpy.context.scene.render.resolution_x = 512
                 bpy.context.scene.render.resolution_y = 512
 
-                [bpy.data.cameras.remove(cam) for cam in  bpy.data.cameras if f"{AxialPlane.name}_CAM" in cam.name]
-                AxialCam = Add_Cam_To_Plane(AxialPlane, CamDistance = 100, ClipOffset=1)
+                [
+                    bpy.data.cameras.remove(cam)
+                    for cam in bpy.data.cameras
+                    if f"{AxialPlane.name}_CAM" in cam.name
+                ]
+                AxialCam = Add_Cam_To_Plane(AxialPlane, CamDistance=100, ClipOffset=1)
                 MoveToCollection(obj=AxialCam, CollName="SLICES-CAMERAS")
 
-                [bpy.data.cameras.remove(cam) for cam in  bpy.data.cameras if f"{CoronalPlane.name}_CAM" in cam.name]
-                CoronalCam = Add_Cam_To_Plane(CoronalPlane, CamDistance = 100, ClipOffset=1)
+                [
+                    bpy.data.cameras.remove(cam)
+                    for cam in bpy.data.cameras
+                    if f"{CoronalPlane.name}_CAM" in cam.name
+                ]
+                CoronalCam = Add_Cam_To_Plane(
+                    CoronalPlane, CamDistance=100, ClipOffset=1
+                )
                 MoveToCollection(obj=CoronalCam, CollName="SLICES-CAMERAS")
 
-
-                [bpy.data.cameras.remove(cam) for cam in  bpy.data.cameras if f"{SagitalPlane.name}_CAM" in cam.name]
-                SagitalCam = Add_Cam_To_Plane(SagitalPlane, CamDistance = 100, ClipOffset=1)
+                [
+                    bpy.data.cameras.remove(cam)
+                    for cam in bpy.data.cameras
+                    if f"{SagitalPlane.name}_CAM" in cam.name
+                ]
+                SagitalCam = Add_Cam_To_Plane(
+                    SagitalPlane, CamDistance=100, ClipOffset=1
+                )
                 MoveToCollection(obj=SagitalCam, CollName="SLICES-CAMERAS")
 
-
-                for obj in bpy.data.objects :
-                    if obj.name == f"{Preffix}_SLICES_POINTER" :
+                for obj in bpy.data.objects:
+                    if obj.name == f"{Preffix}_SLICES_POINTER":
                         bpy.data.objects.remove(obj)
 
-                bpy.ops.object.empty_add(type='PLAIN_AXES', align='WORLD', location=AxialPlane.location, scale=(1, 1, 1))
+                bpy.ops.object.empty_add(
+                    type="PLAIN_AXES",
+                    align="WORLD",
+                    location=AxialPlane.location,
+                    scale=(1, 1, 1),
+                )
                 SLICES_POINTER = bpy.context.object
                 SLICES_POINTER.empty_display_size = 20
                 SLICES_POINTER.show_name = True
@@ -877,19 +905,20 @@ class BDENTAL_OT_AddSlices(bpy.types.Operator):
 
                 Override, _, _ = CtxOverride(bpy.context)
 
-                bpy.ops.object.select_all(Override,action='DESELECT')
+                bpy.ops.object.select_all(Override, action="DESELECT")
                 AxialPlane.select_set(True)
                 CoronalPlane.select_set(True)
                 SagitalPlane.select_set(True)
                 SLICES_POINTER.select_set(True)
                 bpy.context.view_layer.objects.active = SLICES_POINTER
-                bpy.ops.object.parent_set(type='OBJECT', keep_transform=True)
-                bpy.ops.object.select_all(Override,action='DESELECT')
+                bpy.ops.object.parent_set(type="OBJECT", keep_transform=True)
+                bpy.ops.object.select_all(Override, action="DESELECT")
                 SLICES_POINTER.select_set(True)
                 bpy.context.view_layer.objects.active = SLICES_POINTER
                 MoveToCollection(obj=SLICES_POINTER, CollName="SLICES_POINTERS")
 
                 return {"FINISHED"}
+
 
 ###############################################################################
 ####################### BDENTAL VOLUME to Mesh : ################################
@@ -923,30 +952,30 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
 
         Active_Obj = bpy.context.view_layer.objects.active
 
-        if not Active_Obj :
+        if not Active_Obj:
             message = [" Please select CTVOLUME for segmentation ! "]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
             return {"CANCELLED"}
-        else :
-            Conditions = [  
-                            not Active_Obj.name.startswith("BD"),
-                            not Active_Obj.name.endswith("_CTVolume"),
-                            Active_Obj.select_get() == False ]
-            
-            if Conditions[0] or Conditions[1] or Conditions[2] :                
+        else:
+            Conditions = [
+                not Active_Obj.name.startswith("BD"),
+                not Active_Obj.name.endswith("_CTVolume"),
+                Active_Obj.select_get() == False,
+            ]
+
+            if Conditions[0] or Conditions[1] or Conditions[2]:
                 message = [" Please select CTVOLUME for segmentation ! "]
                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
                 return {"CANCELLED"}
-                    
-                    
-            else :
+
+            else:
                 self.Vol = Active_Obj
                 self.Preffix = self.Vol.name[:5]
                 DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
                 self.DcmInfo = DcmInfoDict[self.Preffix]
                 self.Nrrd255Path = AbsPath(self.DcmInfo["Nrrd255Path"])
                 self.Treshold = BDENTAL_Props.Treshold
-            
+
                 if exists(self.Nrrd255Path):
                     if GpShader == "VGS_Marcos_modified":
                         GpNode = bpy.data.node_groups.get(f"{self.Preffix}_{GpShader}")
@@ -967,14 +996,13 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
 
     def DicomToMesh(self):
         counter_start = Tcounter()
-        
-        self.q.put(["GuessTime", "PROGRESS : Extracting mesh...", "", 0.01, 0.1, 2])
+
+        self.q.put(["GuessTime", "PROGRESS : Extracting mesh...", "", 0.0, 0.1, 2])
         # Load Infos :
         #########################################################################
         BDENTAL_Props = bpy.context.scene.BDENTAL_Props
         # NrrdHuPath = BDENTAL_Props.NrrdHuPath
         Nrrd255Path = self.Nrrd255Path
-        print(Nrrd255Path)
         UserProjectDir = AbsPath(BDENTAL_Props.UserProjectDir)
         DcmInfo = self.DcmInfo
         Origin = DcmInfo["Origin"]
@@ -1028,13 +1056,13 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
         step2 = Tcounter()
         self.TimingDict["extract mesh"] = step2 - step1
         # print(f"step 2 : extract mesh ({step2-step1})")
-        
+
         ############### step 3 : mesh Reduction... #########################
         if polysCount > polysLimit:
             # print(f"Hight polygons count, : ({polysCount}) Mesh will be reduced...")
             Reduction = round(1 - (polysLimit / polysCount), 2)
             # print(f"MESH REDUCTION: Ratio = ({Reduction}) ...")
-            
+
             ReductedMesh = vtkMeshReduction(
                 q=self.q,
                 mesh=Mesh,
@@ -1154,19 +1182,22 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
         # t1 = threading.Thread(
         #     target=TerminalProgressBar, args=[self.q, counter_start], daemon=True
         # )
-        t2 = threading.Thread(
-            target=CV2_progress_bar, args=[self.q], daemon=True
-        )
+        t2 = threading.Thread(target=CV2_progress_bar, args=[self.q], daemon=True)
 
         # t1.start()
         t2.start()
         self.DicomToMesh()
         # t1.join()
         t2.join()
+
+        # self.DicomToMesh()
+        # t1.join()
+
         # print("\n")
         # print(self.TimingDict)
 
         return {"FINISHED"}
+
 
 class BDENTAL_OT_MultiView(bpy.types.Operator):
     """ MultiView Toggle """
@@ -1179,60 +1210,91 @@ class BDENTAL_OT_MultiView(bpy.types.Operator):
         BDENTAL_Props = bpy.context.scene.BDENTAL_Props
 
         Active_Obj = bpy.context.view_layer.objects.active
-        
-        if not Active_Obj :                
+
+        if not Active_Obj:
             message = [" Please select CTVOLUME or SEGMENTATION ! "]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
             return {"CANCELLED"}
-        else :
-            Conditions = [  
-                            not Active_Obj.name.startswith("BD"),
-                            not Active_Obj.name.endswith(("_CTVolume", "SEGMENTATION", "_SLICES_POINTER")),
-                            Active_Obj.select_get() == False,
-                                                                     ]
-            if Conditions[0] or Conditions[1] or Conditions[2] :
-                message = [" Please select CTVOLUME or SEGMENTATION or _SLICES_POINTER ! "]
+        else:
+            Conditions = [
+                not Active_Obj.name.startswith("BD"),
+                not Active_Obj.name.endswith(
+                    ("_CTVolume", "SEGMENTATION", "_SLICES_POINTER")
+                ),
+                Active_Obj.select_get() == False,
+            ]
+            if Conditions[0] or Conditions[1] or Conditions[2]:
+                message = [
+                    " Please select CTVOLUME or SEGMENTATION or _SLICES_POINTER ! "
+                ]
                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
-                return {"CANCELLED"}    
-            else :
+                return {"CANCELLED"}
+            else:
                 Preffix = Active_Obj.name[:5]
                 AxialPlane = bpy.data.objects.get(f"1_{Preffix}_AXIAL_SLICE")
                 CoronalPlane = bpy.data.objects.get(f"2_{Preffix}_CORONAL_SLICE")
                 SagitalPlane = bpy.data.objects.get(f"3_{Preffix}_SAGITAL_SLICE")
                 SLICES_POINTER = bpy.data.objects.get(f"{Preffix}_SLICES_POINTER")
 
-                if not AxialPlane or not CoronalPlane or not SagitalPlane :
-                    message = [ "To Add Multi-View Window :",
-                                "1 - Please select CTVOLUME or SEGMENTATION",
-                                "2 - Click on < SLICE VOLUME > button",
-                                "AXIAL, CORONAL and SAGITAL slices will be added",
-                                "3 - Click <MULTI-VIEW> button",
-                                ]
+                if not AxialPlane or not CoronalPlane or not SagitalPlane:
+                    message = [
+                        "To Add Multi-View Window :",
+                        "1 - Please select CTVOLUME or SEGMENTATION",
+                        "2 - Click on < SLICE VOLUME > button",
+                        "AXIAL, CORONAL and SAGITAL slices will be added",
+                        "3 - Click <MULTI-VIEW> button",
+                    ]
                     ShowMessageBox(message=message, icon="COLORSET_02_VEC")
                     return {"CANCELLED"}
 
-                else :
+                else:
 
                     bpy.context.scene.unit_settings.scale_length = 0.001
-                    bpy.context.scene.unit_settings.length_unit = 'MILLIMETERS'
-                    
-                    MultiView_Window, OUTLINER, PROPERTIES, AXIAL, CORONAL, SAGITAL, VIEW_3D = BDENTAL_MultiView_Toggle(Preffix)
+                    bpy.context.scene.unit_settings.length_unit = "MILLIMETERS"
+
+                    (
+                        MultiView_Window,
+                        OUTLINER,
+                        PROPERTIES,
+                        AXIAL,
+                        CORONAL,
+                        SAGITAL,
+                        VIEW_3D,
+                    ) = BDENTAL_MultiView_Toggle(Preffix)
                     MultiView_Screen = MultiView_Window.screen
-                    AXIAL_Space3D = [Space for Space in AXIAL.spaces if Space.type == "VIEW_3D"][0]
-                    AXIAL_Region = [reg for reg in AXIAL.regions if reg.type == "WINDOW"][0]
+                    AXIAL_Space3D = [
+                        Space for Space in AXIAL.spaces if Space.type == "VIEW_3D"
+                    ][0]
+                    AXIAL_Region = [
+                        reg for reg in AXIAL.regions if reg.type == "WINDOW"
+                    ][0]
 
-                    CORONAL_Space3D = [Space for Space in CORONAL.spaces if Space.type == "VIEW_3D"][0]
-                    CORONAL_Region = [reg for reg in CORONAL.regions if reg.type == "WINDOW"][0]
+                    CORONAL_Space3D = [
+                        Space for Space in CORONAL.spaces if Space.type == "VIEW_3D"
+                    ][0]
+                    CORONAL_Region = [
+                        reg for reg in CORONAL.regions if reg.type == "WINDOW"
+                    ][0]
 
-                    SAGITAL_Space3D = [Space for Space in SAGITAL.spaces if Space.type == "VIEW_3D"][0]
-                    SAGITAL_Region = [reg for reg in SAGITAL.regions if reg.type == "WINDOW"][0]
+                    SAGITAL_Space3D = [
+                        Space for Space in SAGITAL.spaces if Space.type == "VIEW_3D"
+                    ][0]
+                    SAGITAL_Region = [
+                        reg for reg in SAGITAL.regions if reg.type == "WINDOW"
+                    ][0]
                     # AXIAL Cam view toggle :
 
                     AxialCam = bpy.data.objects.get(f"{AxialPlane.name}_CAM")
                     AXIAL_Space3D.use_local_collections = True
                     AXIAL_Space3D.use_local_camera = True
                     AXIAL_Space3D.camera = AxialCam
-                    Override = {"window":MultiView_Window, 'screen':MultiView_Screen, 'area':AXIAL,'space_data':AXIAL_Space3D, 'region':AXIAL_Region}
+                    Override = {
+                        "window": MultiView_Window,
+                        "screen": MultiView_Screen,
+                        "area": AXIAL,
+                        "space_data": AXIAL_Space3D,
+                        "region": AXIAL_Region,
+                    }
                     bpy.ops.view3d.view_camera(Override)
 
                     # CORONAL Cam view toggle :
@@ -1240,7 +1302,13 @@ class BDENTAL_OT_MultiView(bpy.types.Operator):
                     CORONAL_Space3D.use_local_collections = True
                     CORONAL_Space3D.use_local_camera = True
                     CORONAL_Space3D.camera = CoronalCam
-                    Override = {"window":MultiView_Window, 'screen':MultiView_Screen, 'area':CORONAL,'space_data':CORONAL_Space3D, 'region':CORONAL_Region}
+                    Override = {
+                        "window": MultiView_Window,
+                        "screen": MultiView_Screen,
+                        "area": CORONAL,
+                        "space_data": CORONAL_Space3D,
+                        "region": CORONAL_Region,
+                    }
                     bpy.ops.view3d.view_camera(Override)
 
                     # AXIAL Cam view toggle :
@@ -1248,15 +1316,21 @@ class BDENTAL_OT_MultiView(bpy.types.Operator):
                     SAGITAL_Space3D.use_local_collections = True
                     SAGITAL_Space3D.use_local_camera = True
                     SAGITAL_Space3D.camera = SagitalCam
-                    Override = {"window":MultiView_Window, 'screen':MultiView_Screen, 'area':SAGITAL,'space_data':SAGITAL_Space3D, 'region':SAGITAL_Region}
+                    Override = {
+                        "window": MultiView_Window,
+                        "screen": MultiView_Screen,
+                        "area": SAGITAL,
+                        "space_data": SAGITAL_Space3D,
+                        "region": SAGITAL_Region,
+                    }
                     bpy.ops.view3d.view_camera(Override)
 
-                    bpy.ops.object.select_all(Override,action='DESELECT')
+                    bpy.ops.object.select_all(Override, action="DESELECT")
                     SLICES_POINTER.select_set(True)
                     bpy.context.view_layer.objects.active = SLICES_POINTER
 
-
         return {"FINISHED"}
+
 
 #################################################################################################
 # Registration :
@@ -1270,35 +1344,52 @@ classes = [
     BDENTAL_OT_MultiView,
 ]
 
+
 def register():
 
     for cls in classes:
         bpy.utils.register_class(cls)
     post_handlers = bpy.app.handlers.depsgraph_update_post
-    MyPostHandlers = ["BDENTAL_TresholdUpdate", "AxialSliceUpdate", "CoronalSliceUpdate", "SagitalSliceUpdate"]
+    MyPostHandlers = [
+        "BDENTAL_TresholdUpdate",
+        "AxialSliceUpdate",
+        "CoronalSliceUpdate",
+        "SagitalSliceUpdate",
+    ]
 
-    # Remove old handlers : 
-    handlers_To_Remove =  [ h for h in post_handlers if h.__name__ in MyPostHandlers ]
-    if handlers_To_Remove :
-        for h in handlers_To_Remove :
+    # Remove old handlers :
+    handlers_To_Remove = [h for h in post_handlers if h.__name__ in MyPostHandlers]
+    if handlers_To_Remove:
+        for h in handlers_To_Remove:
             bpy.app.handlers.depsgraph_update_post.remove(h)
 
-    handlers_To_Add = [BDENTAL_TresholdUpdate, AxialSliceUpdate, CoronalSliceUpdate, SagitalSliceUpdate]
-    for h in handlers_To_Add :
+    handlers_To_Add = [
+        BDENTAL_TresholdUpdate,
+        AxialSliceUpdate,
+        CoronalSliceUpdate,
+        SagitalSliceUpdate,
+    ]
+    for h in handlers_To_Add:
         post_handlers.append(h)
     # post_handlers.append(BDENTAL_TresholdUpdate)
     # post_handlers.append(AxialSliceUpdate)
     # post_handlers.append(CoronalSliceUpdate)
     # post_handlers.append(SagitalSliceUpdate)
-    
+
+
 def unregister():
 
     post_handlers = bpy.app.handlers.depsgraph_update_post
-    MyPostHandlers = ["BDENTAL_TresholdUpdate", "AxialSliceUpdate", "CoronalSliceUpdate", "SagitalSliceUpdate"]
-    handlers_To_Remove =  [ h for h in post_handlers if h.__name__ in MyPostHandlers ]
+    MyPostHandlers = [
+        "BDENTAL_TresholdUpdate",
+        "AxialSliceUpdate",
+        "CoronalSliceUpdate",
+        "SagitalSliceUpdate",
+    ]
+    handlers_To_Remove = [h for h in post_handlers if h.__name__ in MyPostHandlers]
 
-    if handlers_To_Remove :
-        for h in handlers_To_Remove :
+    if handlers_To_Remove:
+        for h in handlers_To_Remove:
             bpy.app.handlers.depsgraph_update_post.remove(h)
 
     for cls in reversed(classes):

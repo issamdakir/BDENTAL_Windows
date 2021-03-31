@@ -250,7 +250,7 @@ class BDENTAL_Props(bpy.types.PropertyGroup):
 
     #####################
 
-    Cutting_Tools_Types = ["Curve Cutter 1", "Curve Cutter 2", "Square Cutting Tool"]
+    Cutting_Tools_Types = ["Curve Cutter 1", "Curve Cutter 2", "Square Cutting Tool", "Paint Cutter"]
     items = []
     for i in range(len(Cutting_Tools_Types)):
         item = (
