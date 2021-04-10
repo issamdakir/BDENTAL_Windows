@@ -95,6 +95,63 @@ def rmtree(top):
 #         return {"FINISHED"}
 
 
+class BDENTAL_OT_Template(bpy.types.Operator):
+    """ Open BDENTAL workspace template """
+
+    bl_idname = "bdental.template"
+    bl_label = "OPEN BDENTAL WORKSPACE"
+
+    SaveMainFile: BoolProperty(description="Save Main File", default=False)
+
+    def execute(self, context):
+
+        CurrentBlendFile = bpy.path.abspath(bpy.data.filepath)
+        BlendStartFile = join(
+            addon_dir, "Resources", "BlendData", "BlendStartFile.blend"
+        )
+
+        # Install or load BDENTAL theme :
+        ScriptsPath = dirname(dirname(addon_dir))
+        BDENTAL_Theme_installed = join(
+            ScriptsPath, "presets", "interface_theme", "BDENTAL.xml"
+        )
+        if not exists(BDENTAL_Theme_installed):
+            BDENTAL_Theme = join(addon_dir, "Resources", "BDENTAL.xml")
+            bpy.ops.preferences.theme_install(filepath=BDENTAL_Theme)
+
+        bpy.ops.script.execute_preset(
+            filepath=BDENTAL_Theme_installed,
+            menu_idname="USERPREF_MT_interface_theme_presets",
+        )
+
+        # Save Re Open current Project check :
+        if self.SaveMainFile:
+            if not CurrentBlendFile:
+                message = [" Please Save your Project ", "Or uncheck Save Main File"]
+                ShowMessageBox(message=message, icon="COLORSET_01_VEC")
+                return {"CANCELLED"}
+            else:
+                bpy.ops.wm.save_mainfile()
+                CurrentBlendFile = bpy.path.abspath(bpy.data.filepath)
+                reopen = True
+        if not self.SaveMainFile:
+            reopen = False
+
+        bpy.ops.wm.open_mainfile(filepath=BlendStartFile)
+        # context.space_data.region_3d.view_perspective = "ORTHO"
+        bpy.ops.wm.save_homefile()
+
+        if reopen and CurrentBlendFile:
+            bpy.ops.wm.open_mainfile(filepath=CurrentBlendFile)
+
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+
+        wm = context.window_manager
+        return wm.invoke_props_dialog(self)
+
+
 def GetMaxSerie(UserDcmDir):
 
     SeriesDict = {}
@@ -1337,6 +1394,7 @@ class BDENTAL_OT_MultiView(bpy.types.Operator):
 #################################################################################################
 
 classes = [
+    BDENTAL_OT_Template,
     BDENTAL_OT_Volume_Render,
     BDENTAL_OT_TresholdUpdate,
     BDENTAL_OT_AddSlices,

@@ -38,10 +38,15 @@ class BDENTAL_PT_MainPanel(bpy.types.Panel):
         layout = self.layout
 
         box = layout.box()
+
         row = box.row()
         row.alert = True
         row.alignment = "CENTER"
         row.label(text=f"WINDOWS VERSION : {Addon_Version_Date}")
+
+        row = box.row()
+        row.alignment = "CENTER"
+        row.operator("bdental.template", text="BDENTAL THEME")
 
 
 class BDENTAL_PT_ScanPanel(bpy.types.Panel):
