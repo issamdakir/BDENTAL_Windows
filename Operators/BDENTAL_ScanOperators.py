@@ -978,35 +978,140 @@ class BDENTAL_OT_AddSlices(bpy.types.Operator):
 
 
 ###############################################################################
-####################### BDENTAL VOLUME to Mesh : ################################
+####################### BDENTAL_FULL VOLUME to Mesh : ################################
 ##############################################################################
-class BDENTAL_OT_TreshSegment(bpy.types.Operator):
+class BDENTAL_OT_MultiTreshSegment(bpy.types.Operator):
     """ Add a mesh Segmentation using Treshold """
 
-    bl_idname = "bdental.tresh_segment"
+    bl_idname = "bdental.multitresh_segment"
     bl_label = "SEGMENTATION"
-
-    SegmentName: StringProperty(
-        name="Segmentation Name",
-        default="TEST",
-        description="Segmentation Name",
-    )
-    SegmentColor: FloatVectorProperty(
-        name="Segmentation Color",
-        description="Segmentation Color",
-        default=[0.44, 0.4, 0.5, 1.0],  # (0.8, 0.46, 0.4, 1.0),
-        soft_min=0.0,
-        soft_max=1.0,
-        size=4,
-        subtype="COLOR",
-    )
 
     TimingDict = {}
 
-    def invoke(self, context, event):
+    def ImportMeshStl(self, Segment, SegmentStlPath, SegmentColor):
+
+        # import stl to blender scene :
+        bpy.ops.import_mesh.stl(filepath=SegmentStlPath)
+        obj = bpy.context.object
+        obj.name = f"{self.Preffix}_{Segment}_SEGMENTATION"
+        obj.data.name = f"{self.Preffix}_{Segment}_mesh"
+
+        bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
+
+        self.step7 = Tcounter()
+        self.TimingDict["Mesh Import"] = self.step7 - self.step6
+
+        ############### step 8 : Add material... #########################
+        mat = bpy.data.materials.get(obj.name) or bpy.data.materials.new(obj.name)
+        mat.diffuse_color = SegmentColor
+        obj.data.materials.append(mat)
+        MoveToCollection(obj=obj, CollName="SEGMENTS")
+        bpy.ops.object.shade_smooth()
+
+        bpy.ops.object.modifier_add(type="CORRECTIVE_SMOOTH")
+        bpy.context.object.modifiers["CorrectiveSmooth"].iterations = 2
+        bpy.context.object.modifiers["CorrectiveSmooth"].use_only_smooth = True
+        bpy.ops.object.modifier_apply(modifier="CorrectiveSmooth")
+
+        self.step8 = Tcounter()
+        self.TimingDict["Add material"] = self.step8 - self.step7
+        print(f"{Segment} Mesh Import Finished")
+
+        # self.q.put(["End"])
+
+    def DicomToStl(self, Segment, Image3D):
+        print(f"{Segment} processing ...")
+        # Load Infos :
+        #########################################################################
+        BDENTAL_Props = bpy.context.scene.BDENTAL_Props
+        UserProjectDir = AbsPath(BDENTAL_Props.UserProjectDir)
+        DcmInfo = self.DcmInfo
+        Origin = DcmInfo["Origin"]
+        VtkTransform_4x4 = DcmInfo["VtkTransform_4x4"]
+        VtkMatrix = list(np.array(VtkTransform_4x4).ravel())
+
+        SmoothIterations = SmthIter = 5
+        Thikness = 1
+
+        SegmentTreshold = self.SegmentsDict[Segment]["Treshold"]
+        SegmentColor = self.SegmentsDict[Segment]["Color"]
+        SegmentStlPath = join(UserProjectDir, f"{Segment}_SEGMENTATION.stl")
+
+        # Convert Hu treshold value to 0-255 UINT8 :
+        Treshold255 = HuTo255(Hu=SegmentTreshold, Wmin=Wmin, Wmax=Wmax)
+        if Treshold255 == 0:
+            Treshold255 = 1
+        elif Treshold255 == 255:
+            Treshold255 = 254
+
+        ############### step 2 : Extracting mesh... #########################
+        # print("Extracting mesh...")
+        vtkImage = sitkTovtk(sitkImage=Image3D)
+
+        ExtractedMesh = vtk_MC_Func(vtkImage=vtkImage, Treshold=Treshold255)
+        Mesh = ExtractedMesh
+
+        polysCount = Mesh.GetNumberOfPolys()
+        polysLimit = 800000
+
+        self.step2 = Tcounter()
+        self.TimingDict["Mesh Extraction Time"] = self.step2 - self.step1
+        print(f"{Segment} Mesh Extraction Finished")
+        ############### step 3 : mesh Reduction... #########################
+        if polysCount > polysLimit:
+
+            Reduction = round(1 - (polysLimit / polysCount), 2)
+            ReductedMesh = vtkMeshReduction(
+                q=self.q,
+                mesh=Mesh,
+                reduction=Reduction,
+                step="Mesh Reduction",
+                start=0.11,
+                finish=0.75,
+            )
+            Mesh = ReductedMesh
+
+        self.step3 = Tcounter()
+        self.TimingDict["Mesh Reduction Time"] = self.step3 - self.step2
+        print(f"{Segment} Mesh Reduction Finished")
+        ############### step 4 : mesh Smoothing... #########################
+        SmoothedMesh = vtkSmoothMesh(
+            q=self.q,
+            mesh=Mesh,
+            Iterations=SmthIter,
+            step="Mesh Smoothing",
+            start=0.76,
+            finish=0.78,
+        )
+
+        self.step4 = Tcounter()
+        self.TimingDict["Mesh Smoothing Time"] = self.step4 - self.step3
+        print(f"{Segment} Mesh Smoothing Finished")
+        ############### step 5 : Set mesh orientation... #########################
+        TransformedMesh = vtkTransformMesh(
+            mesh=SmoothedMesh,
+            Matrix=VtkMatrix,
+        )
+        self.step5 = Tcounter()
+        self.TimingDict["Mesh Orientation"] = self.step5 - self.step4
+        print(f"{Segment} Mesh Orientation Finished")
+        ############### step 6 : exporting mesh stl... #########################
+        writer = vtk.vtkSTLWriter()
+        writer.SetInputData(TransformedMesh)
+        writer.SetFileTypeToBinary()
+        writer.SetFileName(SegmentStlPath)
+        writer.Write()
+
+        self.step6 = Tcounter()
+        self.TimingDict["Mesh Export"] = self.step6 - self.step5
+        print(f"{Segment} Mesh Export Finished")
+        self.Exported.put([Segment, SegmentStlPath, SegmentColor])
+
+    def execute(self, context):
+
+        self.counter_start = Tcounter()
 
         BDENTAL_Props = bpy.context.scene.BDENTAL_Props
-
         Active_Obj = bpy.context.view_layer.objects.active
 
         if not Active_Obj:
@@ -1026,234 +1131,401 @@ class BDENTAL_OT_TreshSegment(bpy.types.Operator):
                 return {"CANCELLED"}
 
             else:
-                self.Vol = Active_Obj
-                self.Preffix = self.Vol.name[:5]
-                DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
-                self.DcmInfo = DcmInfoDict[self.Preffix]
-                self.Nrrd255Path = AbsPath(self.DcmInfo["Nrrd255Path"])
-                self.Treshold = BDENTAL_Props.Treshold
 
-                if exists(self.Nrrd255Path):
-                    if GpShader == "VGS_Marcos_modified":
-                        GpNode = bpy.data.node_groups.get(f"{self.Preffix}_{GpShader}")
-                        ColorPresetRamp = GpNode.nodes["ColorPresetRamp"].color_ramp
-                        value = (self.Treshold - Wmin) / (Wmax - Wmin)
-                        TreshColor = [
-                            round(c, 2) for c in ColorPresetRamp.evaluate(value)[0:3]
-                        ]
-                        self.SegmentColor = TreshColor + [1.0]
-                    self.q = Queue()
-                    wm = context.window_manager
-                    return wm.invoke_props_dialog(self)
+                self.Soft = BDENTAL_Props.SoftBool
+                self.Bone = BDENTAL_Props.BoneBool
+                self.Teeth = BDENTAL_Props.TeethBool
 
-                else:
-                    message = [" Image File not Found in Project Folder ! "]
-                    ShowMessageBox(message=message, icon="COLORSET_01_VEC")
+                self.SoftTresh = BDENTAL_Props.SoftTreshold
+                self.BoneTresh = BDENTAL_Props.BoneTreshold
+                self.TeethTresh = BDENTAL_Props.TeethTreshold
+
+                self.SoftSegmentColor = BDENTAL_Props.SoftSegmentColor
+                self.BoneSegmentColor = BDENTAL_Props.BoneSegmentColor
+                self.TeethSegmentColor = BDENTAL_Props.TeethSegmentColor
+
+                self.SegmentsDict = {
+                    "Soft": {
+                        "State": self.Soft,
+                        "Treshold": self.SoftTresh,
+                        "Color": self.SoftSegmentColor,
+                    },
+                    "Bone": {
+                        "State": self.Bone,
+                        "Treshold": self.BoneTresh,
+                        "Color": self.BoneSegmentColor,
+                    },
+                    "Teeth": {
+                        "State": self.Teeth,
+                        "Treshold": self.TeethTresh,
+                        "Color": self.TeethSegmentColor,
+                    },
+                }
+
+                ActiveSegmentsList = [
+                    k for k, v in self.SegmentsDict.items() if v["State"]
+                ]
+
+                if not ActiveSegmentsList:
+                    message = [
+                        " Please check at least 1 segmentation ! ",
+                        "(Soft - Bone - Teeth)",
+                    ]
+                    ShowMessageBox(message=message, icon="COLORSET_02_VEC")
                     return {"CANCELLED"}
+                else:
 
-    def DicomToMesh(self):
-        counter_start = Tcounter()
+                    self.Vol = Active_Obj
+                    self.Preffix = self.Vol.name[:5]
+                    DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
+                    self.DcmInfo = DcmInfoDict[self.Preffix]
+                    self.Nrrd255Path = AbsPath(self.DcmInfo["Nrrd255Path"])
+                    self.q = Queue()
+                    self.Exported = Queue()
 
-        self.q.put(["GuessTime", "PROGRESS : Extracting mesh...", "", 0.0, 0.1, 2])
-        # Load Infos :
-        #########################################################################
-        BDENTAL_Props = bpy.context.scene.BDENTAL_Props
-        # NrrdHuPath = BDENTAL_Props.NrrdHuPath
-        Nrrd255Path = self.Nrrd255Path
-        UserProjectDir = AbsPath(BDENTAL_Props.UserProjectDir)
-        DcmInfo = self.DcmInfo
-        Origin = DcmInfo["Origin"]
-        VtkTransform_4x4 = DcmInfo["VtkTransform_4x4"]
-        VtkMatrix = list(np.array(VtkTransform_4x4).ravel())
-        Treshold = self.Treshold
+                    if not exists(self.Nrrd255Path):
 
-        StlPath = join(UserProjectDir, f"{self.SegmentName}_SEGMENTATION.stl")
-        Thikness = 1
-        # Reduction = 0.9
-        SmoothIterations = SmthIter = 5
+                        message = [" Image File not Found in Project Folder ! "]
+                        ShowMessageBox(message=message, icon="COLORSET_01_VEC")
+                        return {"CANCELLED"}
 
-        ############### step 1 : Reading DICOM #########################
-        # self.q.put(["GuessTime", "PROGRESS : Reading DICOM...", "", 0, 0.1, 1])
+                    else:
 
-        Image3D = sitk.ReadImage(Nrrd255Path)
-        Sz = Image3D.GetSize()
-        Sp = Image3D.GetSpacing()
-        MaxSp = max(Vector(Sp))
-        if MaxSp < 0.3:
-            SampleRatio = round(MaxSp / 0.3, 2)
-            ResizedImage = ResizeImage(sitkImage=Image3D, Ratio=SampleRatio)
-            Image3D = ResizedImage
-            # print(f"Image DOWN Sampled : SampleRatio = {SampleRatio}")
+                        ############### step 1 : Reading DICOM #########################
+                        self.step1 = Tcounter()
+                        self.TimingDict["Read DICOM"] = self.step1 - self.counter_start
+                        print(f"step 1 : Read DICOM ({self.step1-self.counter_start})")
 
-        # Convert Hu treshold value to 0-255 UINT8 :
-        Treshold255 = HuTo255(Hu=Treshold, Wmin=Wmin, Wmax=Wmax)
-        if Treshold255 == 0:
-            Treshold255 = 1
-        elif Treshold255 == 255:
-            Treshold255 = 254
+                        Image3D = sitk.ReadImage(self.Nrrd255Path)
+                        # Sz = Image3D.GetSize()
+                        Sp = Image3D.GetSpacing()
+                        MaxSp = max(Vector(Sp))
+                        if MaxSp < 0.3:
+                            SampleRatio = round(MaxSp / 0.3, 2)
+                            ResizedImage = ResizeImage(
+                                sitkImage=Image3D, Ratio=SampleRatio
+                            )
+                            Image3D = ResizedImage
+                            print(f"Image DOWN Sampled : SampleRatio = {SampleRatio}")
 
-        step1 = Tcounter()
-        self.TimingDict["Read DICOM"] = step1 - counter_start
-        # print(f"step 1 : Read DICOM ({step1-start})")
+                        ############### step 2 : Dicom To Stl Threads #########################
 
-        ############### step 2 : Extracting mesh... #########################
-        # self.q.put(["GuessTime", "PROGRESS : Extracting mesh...", "", 0.0, 0.1, 2])
+                        self.MeshesCount = len(ActiveSegmentsList)
 
-        # print("Extracting mesh...")
-        vtkImage = sitkTovtk(sitkImage=Image3D)
+                        Threads = [
+                            threading.Thread(
+                                target=self.DicomToStl,
+                                args=[Segment, Image3D],
+                                daemon=True,
+                            )
+                            for Segment in ActiveSegmentsList
+                        ]
+                        for t in Threads:
+                            t.start()
+                        count = 0
+                        while count < self.MeshesCount:
+                            if not self.Exported.empty():
+                                (
+                                    Segment,
+                                    SegmentStlPath,
+                                    SegmentColor,
+                                ) = self.Exported.get()
+                                self.ImportMeshStl(
+                                    Segment, SegmentStlPath, SegmentColor
+                                )
+                                count += 1
+                            else:
+                                sleep(0.1)
+                        for t in Threads:
+                            t.join()
 
-        ExtractedMesh = vtk_MC_Func(vtkImage=vtkImage, Treshold=Treshold255)
-        Mesh = ExtractedMesh
+                        self.counter_finish = Tcounter()
+                        self.TimingDict["Total Time"] = (
+                            self.counter_finish - self.counter_start
+                        )
 
-        polysCount = Mesh.GetNumberOfPolys()
-        polysLimit = 800000
+                        print(self.TimingDict)
 
-        # step1 = Tcounter()
-        # print(f"before reduction finished in : {step1-start} secondes")
-        step2 = Tcounter()
-        self.TimingDict["extract mesh"] = step2 - step1
-        # print(f"step 2 : extract mesh ({step2-step1})")
+                        return {"FINISHED"}
 
-        ############### step 3 : mesh Reduction... #########################
-        if polysCount > polysLimit:
-            # print(f"Hight polygons count, : ({polysCount}) Mesh will be reduced...")
-            Reduction = round(1 - (polysLimit / polysCount), 2)
-            # print(f"MESH REDUCTION: Ratio = ({Reduction}) ...")
 
-            ReductedMesh = vtkMeshReduction(
-                q=self.q,
-                mesh=Mesh,
-                reduction=Reduction,
-                step="Mesh Reduction",
-                start=0.11,
-                finish=0.75,
-            )
-            Mesh = ReductedMesh
-            # print(f"Reduced Mesh polygons count : {Mesh.GetNumberOfPolys()} ...")
-            # step2 = Tcounter()
-            # print(f"reduction finished in : {step2-step1} secondes")
-        # else:
-        # print(f"Original mesh polygons count is Optimal : ({polysCount})...")
-        step3 = Tcounter()
-        self.TimingDict["Reduct mesh"] = step3 - step2
-        # print(f"step 3 : Reduct mesh ({step3-step2})")
+###############################################################################
+####################### BDENTAL VOLUME to Mesh : ################################
+##############################################################################
+# class BDENTAL_OT_TreshSegment(bpy.types.Operator):
+#     """ Add a mesh Segmentation using Treshold """
 
-        ############### step 4 : mesh Smoothing... #########################
-        # print("SMOOTHING...")
-        SmoothedMesh = vtkSmoothMesh(
-            q=self.q,
-            mesh=Mesh,
-            Iterations=SmthIter,
-            step="Mesh Orientation",
-            start=0.76,
-            finish=0.78,
-        )
-        step3 = Tcounter()
-        # try:
-        #     print(f"SMOOTHING finished in : {step3-step2} secondes...")
-        # except Exception:
-        #     print(f"SMOOTHING finished in : {step3-step1} secondes (no Reduction!)...")
-        step4 = Tcounter()
-        self.TimingDict["Smooth mesh"] = step4 - step3
-        # print(f"step 4 : Smooth mesh ({step4-step3})")
+#     bl_idname = "bdental.tresh_segment"
+#     bl_label = "SEGMENTATION"
 
-        ############### step 5 : Set mesh orientation... #########################
-        # print("SET MESH ORIENTATION...")
-        TransformedMesh = vtkTransformMesh(
-            mesh=SmoothedMesh,
-            Matrix=VtkMatrix,
-        )
-        step5 = Tcounter()
-        self.TimingDict["Mesh Transform"] = step5 - step4
-        # print(f"step 5 : set mesh orientation({step5-step4})")
+#     SegmentName: StringProperty(
+#         name="Segmentation Name",
+#         default="TEST",
+#         description="Segmentation Name",
+#     )
+#     SegmentColor: FloatVectorProperty(
+#         name="Segmentation Color",
+#         description="Segmentation Color",
+#         default=[0.44, 0.4, 0.5, 1.0],  # (0.8, 0.46, 0.4, 1.0),
+#         soft_min=0.0,
+#         soft_max=1.0,
+#         size=4,
+#         subtype="COLOR",
+#     )
 
-        ############### step 6 : exporting mesh stl... #########################
-        self.q.put(
-            [
-                "GuessTime",
-                "PROGRESS : exporting mesh stl...",
-                "",
-                0.79,
-                0.83,
-                2,
-            ]
-        )
+#     TimingDict = {}
 
-        # print("WRITING...")
-        writer = vtk.vtkSTLWriter()
-        writer.SetInputData(TransformedMesh)
-        writer.SetFileTypeToBinary()
-        writer.SetFileName(StlPath)
-        writer.Write()
+#     def invoke(self, context, event):
 
-        # step4 = Tcounter()
-        # print(f"WRITING finished in : {step4-step3} secondes")
-        step6 = Tcounter()
-        self.TimingDict["Export mesh"] = step6 - step5
-        # print(f"step 6 : Export mesh ({step6-step5})")
+#         BDENTAL_Props = bpy.context.scene.BDENTAL_Props
 
-        ############### step 7 : Importing mesh to Blender... #########################
-        self.q.put(["GuessTime", "PROGRESS : Importing mesh...", "", 0.84, 0.97, 8])
+#         Active_Obj = bpy.context.view_layer.objects.active
 
-        # print("IMPORTING...")
-        # import stl to blender scene :
-        bpy.ops.import_mesh.stl(filepath=StlPath)
-        obj = bpy.context.object
-        obj.name = f"{self.Preffix}_{self.SegmentName}_SEGMENTATION"
-        obj.data.name = f"{self.Preffix}_{self.SegmentName}_mesh"
+#         if not Active_Obj:
+#             message = [" Please select CTVOLUME for segmentation ! "]
+#             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+#             return {"CANCELLED"}
+#         else:
+#             Conditions = [
+#                 not Active_Obj.name.startswith("BD"),
+#                 not Active_Obj.name.endswith("_CTVolume"),
+#                 Active_Obj.select_get() == False,
+#             ]
 
-        bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
+#             if Conditions[0] or Conditions[1] or Conditions[2]:
+#                 message = [" Please select CTVOLUME for segmentation ! "]
+#                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+#                 return {"CANCELLED"}
 
-        step7 = Tcounter()
-        self.TimingDict["Import mesh"] = step7 - step6
-        # print(f"step 7 : Import mesh({step7-step6})")
-        ############### step 8 : Add material... #########################
-        self.q.put(["GuessTime", "PROGRESS : Add material...", "", 0.98, 0.99, 1])
+#             else:
+#                 self.Vol = Active_Obj
+#                 self.Preffix = self.Vol.name[:5]
+#                 DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
+#                 self.DcmInfo = DcmInfoDict[self.Preffix]
+#                 self.Nrrd255Path = AbsPath(self.DcmInfo["Nrrd255Path"])
+#                 self.Treshold = BDENTAL_Props.Treshold
 
-        # print("ADD COLOR MATERIAL")
-        mat = bpy.data.materials.get(obj.name) or bpy.data.materials.new(obj.name)
-        mat.diffuse_color = self.SegmentColor
-        obj.data.materials.append(mat)
-        MoveToCollection(obj=obj, CollName="SEGMENTS")
-        bpy.ops.object.shade_smooth()
+#                 if exists(self.Nrrd255Path):
+#                     if GpShader == "VGS_Marcos_modified":
+#                         GpNode = bpy.data.node_groups.get(f"{self.Preffix}_{GpShader}")
+#                         ColorPresetRamp = GpNode.nodes["ColorPresetRamp"].color_ramp
+#                         value = (self.Treshold - Wmin) / (Wmax - Wmin)
+#                         TreshColor = [
+#                             round(c, 2) for c in ColorPresetRamp.evaluate(value)[0:3]
+#                         ]
+#                         self.SegmentColor = TreshColor + [1.0]
+#                     self.q = Queue()
+#                     wm = context.window_manager
+#                     return wm.invoke_props_dialog(self)
 
-        bpy.ops.object.modifier_add(type="CORRECTIVE_SMOOTH")
-        bpy.context.object.modifiers["CorrectiveSmooth"].iterations = 3
-        bpy.context.object.modifiers["CorrectiveSmooth"].use_only_smooth = True
+#                 else:
+#                     message = [" Image File not Found in Project Folder ! "]
+#                     ShowMessageBox(message=message, icon="COLORSET_01_VEC")
+#                     return {"CANCELLED"}
 
-        # step5 = Tcounter()
-        # print(f"Blender importing finished in : {step5-step4} secondes")
+#     def DicomToMesh(self):
+#         counter_start = Tcounter()
 
-        step8 = Tcounter()
-        self.TimingDict["Add material"] = step8 - step7
-        # print(f"step 8 : Add material({step8-step7})")
+#         self.q.put(["GuessTime", "PROGRESS : Extracting mesh...", "", 0.0, 0.1, 2])
+#         # Load Infos :
+#         #########################################################################
+#         BDENTAL_Props = bpy.context.scene.BDENTAL_Props
+#         # NrrdHuPath = BDENTAL_Props.NrrdHuPath
+#         Nrrd255Path = self.Nrrd255Path
+#         UserProjectDir = AbsPath(BDENTAL_Props.UserProjectDir)
+#         DcmInfo = self.DcmInfo
+#         Origin = DcmInfo["Origin"]
+#         VtkTransform_4x4 = DcmInfo["VtkTransform_4x4"]
+#         VtkMatrix = list(np.array(VtkTransform_4x4).ravel())
+#         Treshold = self.Treshold
 
-        self.q.put(["End"])
-        counter_finish = Tcounter()
-        self.TimingDict["Total Time"] = counter_finish - counter_start
+#         StlPath = join(UserProjectDir, f"{self.SegmentName}_SEGMENTATION.stl")
+#         Thikness = 1
+#         # Reduction = 0.9
+#         SmoothIterations = SmthIter = 5
 
-    def execute(self, context):
-        counter_start = Tcounter()
-        # TerminalProgressBar = BDENTAL_Utils.TerminalProgressBar
-        CV2_progress_bar = BDENTAL_Utils.CV2_progress_bar
-        # t1 = threading.Thread(
-        #     target=TerminalProgressBar, args=[self.q, counter_start], daemon=True
-        # )
-        t2 = threading.Thread(target=CV2_progress_bar, args=[self.q], daemon=True)
+#         ############### step 1 : Reading DICOM #########################
+#         # self.q.put(["GuessTime", "PROGRESS : Reading DICOM...", "", 0, 0.1, 1])
 
-        # t1.start()
-        t2.start()
-        self.DicomToMesh()
-        # t1.join()
-        t2.join()
+#         Image3D = sitk.ReadImage(Nrrd255Path)
+#         Sz = Image3D.GetSize()
+#         Sp = Image3D.GetSpacing()
+#         MaxSp = max(Vector(Sp))
+#         if MaxSp < 0.3:
+#             SampleRatio = round(MaxSp / 0.3, 2)
+#             ResizedImage = ResizeImage(sitkImage=Image3D, Ratio=SampleRatio)
+#             Image3D = ResizedImage
+#             # print(f"Image DOWN Sampled : SampleRatio = {SampleRatio}")
 
-        # self.DicomToMesh()
-        # t1.join()
+#         # Convert Hu treshold value to 0-255 UINT8 :
+#         Treshold255 = HuTo255(Hu=Treshold, Wmin=Wmin, Wmax=Wmax)
+#         if Treshold255 == 0:
+#             Treshold255 = 1
+#         elif Treshold255 == 255:
+#             Treshold255 = 254
 
-        # print("\n")
-        # print(self.TimingDict)
+#         step1 = Tcounter()
+#         self.TimingDict["Read DICOM"] = step1 - counter_start
+#         # print(f"step 1 : Read DICOM ({step1-start})")
 
-        return {"FINISHED"}
+#         ############### step 2 : Extracting mesh... #########################
+#         # self.q.put(["GuessTime", "PROGRESS : Extracting mesh...", "", 0.0, 0.1, 2])
+
+#         # print("Extracting mesh...")
+#         vtkImage = sitkTovtk(sitkImage=Image3D)
+
+#         ExtractedMesh = vtk_MC_Func(vtkImage=vtkImage, Treshold=Treshold255)
+#         Mesh = ExtractedMesh
+
+#         polysCount = Mesh.GetNumberOfPolys()
+#         polysLimit = 800000
+
+#         # step1 = Tcounter()
+#         # print(f"before reduction finished in : {step1-start} secondes")
+#         step2 = Tcounter()
+#         self.TimingDict["extract mesh"] = step2 - step1
+#         # print(f"step 2 : extract mesh ({step2-step1})")
+
+#         ############### step 3 : mesh Reduction... #########################
+#         if polysCount > polysLimit:
+#             # print(f"Hight polygons count, : ({polysCount}) Mesh will be reduced...")
+#             Reduction = round(1 - (polysLimit / polysCount), 2)
+#             # print(f"MESH REDUCTION: Ratio = ({Reduction}) ...")
+
+#             ReductedMesh = vtkMeshReduction(
+#                 q=self.q,
+#                 mesh=Mesh,
+#                 reduction=Reduction,
+#                 step="Mesh Reduction",
+#                 start=0.11,
+#                 finish=0.75,
+#             )
+#             Mesh = ReductedMesh
+#             # print(f"Reduced Mesh polygons count : {Mesh.GetNumberOfPolys()} ...")
+#             # step2 = Tcounter()
+#             # print(f"reduction finished in : {step2-step1} secondes")
+#         # else:
+#         # print(f"Original mesh polygons count is Optimal : ({polysCount})...")
+#         step3 = Tcounter()
+#         self.TimingDict["Reduct mesh"] = step3 - step2
+#         # print(f"step 3 : Reduct mesh ({step3-step2})")
+
+#         ############### step 4 : mesh Smoothing... #########################
+#         # print("SMOOTHING...")
+#         SmoothedMesh = vtkSmoothMesh(
+#             q=self.q,
+#             mesh=Mesh,
+#             Iterations=SmthIter,
+#             step="Mesh Orientation",
+#             start=0.76,
+#             finish=0.78,
+#         )
+#         step3 = Tcounter()
+#         # try:
+#         #     print(f"SMOOTHING finished in : {step3-step2} secondes...")
+#         # except Exception:
+#         #     print(f"SMOOTHING finished in : {step3-step1} secondes (no Reduction!)...")
+#         step4 = Tcounter()
+#         self.TimingDict["Smooth mesh"] = step4 - step3
+#         # print(f"step 4 : Smooth mesh ({step4-step3})")
+
+#         ############### step 5 : Set mesh orientation... #########################
+#         # print("SET MESH ORIENTATION...")
+#         TransformedMesh = vtkTransformMesh(
+#             mesh=SmoothedMesh,
+#             Matrix=VtkMatrix,
+#         )
+#         step5 = Tcounter()
+#         self.TimingDict["Mesh Transform"] = step5 - step4
+#         # print(f"step 5 : set mesh orientation({step5-step4})")
+
+#         ############### step 6 : exporting mesh stl... #########################
+#         self.q.put(
+#             [
+#                 "GuessTime",
+#                 "PROGRESS : exporting mesh stl...",
+#                 "",
+#                 0.79,
+#                 0.83,
+#                 2,
+#             ]
+#         )
+
+#         # print("WRITING...")
+#         writer = vtk.vtkSTLWriter()
+#         writer.SetInputData(TransformedMesh)
+#         writer.SetFileTypeToBinary()
+#         writer.SetFileName(StlPath)
+#         writer.Write()
+
+#         # step4 = Tcounter()
+#         # print(f"WRITING finished in : {step4-step3} secondes")
+#         step6 = Tcounter()
+#         self.TimingDict["Export mesh"] = step6 - step5
+#         # print(f"step 6 : Export mesh ({step6-step5})")
+
+#         ############### step 7 : Importing mesh to Blender... #########################
+#         self.q.put(["GuessTime", "PROGRESS : Importing mesh...", "", 0.84, 0.97, 8])
+
+#         # print("IMPORTING...")
+#         # import stl to blender scene :
+#         bpy.ops.import_mesh.stl(filepath=StlPath)
+#         obj = bpy.context.object
+#         obj.name = f"{self.Preffix}_{self.SegmentName}_SEGMENTATION"
+#         obj.data.name = f"{self.Preffix}_{self.SegmentName}_mesh"
+
+#         bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
+
+#         step7 = Tcounter()
+#         self.TimingDict["Import mesh"] = step7 - step6
+#         # print(f"step 7 : Import mesh({step7-step6})")
+#         ############### step 8 : Add material... #########################
+#         self.q.put(["GuessTime", "PROGRESS : Add material...", "", 0.98, 0.99, 1])
+
+#         # print("ADD COLOR MATERIAL")
+#         mat = bpy.data.materials.get(obj.name) or bpy.data.materials.new(obj.name)
+#         mat.diffuse_color = self.SegmentColor
+#         obj.data.materials.append(mat)
+#         MoveToCollection(obj=obj, CollName="SEGMENTS")
+#         bpy.ops.object.shade_smooth()
+
+#         bpy.ops.object.modifier_add(type="CORRECTIVE_SMOOTH")
+#         bpy.context.object.modifiers["CorrectiveSmooth"].iterations = 3
+#         bpy.context.object.modifiers["CorrectiveSmooth"].use_only_smooth = True
+
+#         # step5 = Tcounter()
+#         # print(f"Blender importing finished in : {step5-step4} secondes")
+
+#         step8 = Tcounter()
+#         self.TimingDict["Add material"] = step8 - step7
+#         # print(f"step 8 : Add material({step8-step7})")
+
+#         self.q.put(["End"])
+#         counter_finish = Tcounter()
+#         self.TimingDict["Total Time"] = counter_finish - counter_start
+
+#     def execute(self, context):
+#         counter_start = Tcounter()
+#         # TerminalProgressBar = BDENTAL_Utils.TerminalProgressBar
+#         CV2_progress_bar = BDENTAL_Utils.CV2_progress_bar
+#         # t1 = threading.Thread(
+#         #     target=TerminalProgressBar, args=[self.q, counter_start], daemon=True
+#         # )
+#         t2 = threading.Thread(target=CV2_progress_bar, args=[self.q], daemon=True)
+
+#         # t1.start()
+#         t2.start()
+#         self.DicomToMesh()
+#         # t1.join()
+#         t2.join()
+
+#         # self.DicomToMesh()
+#         # t1.join()
+
+#         # print("\n")
+#         # print(self.TimingDict)
+
+#         return {"FINISHED"}
 
 
 class BDENTAL_OT_MultiView(bpy.types.Operator):
@@ -1398,7 +1670,8 @@ classes = [
     BDENTAL_OT_Volume_Render,
     BDENTAL_OT_TresholdUpdate,
     BDENTAL_OT_AddSlices,
-    BDENTAL_OT_TreshSegment,
+    # BDENTAL_OT_TreshSegment,
+    BDENTAL_OT_MultiTreshSegment,
     BDENTAL_OT_MultiView,
 ]
 

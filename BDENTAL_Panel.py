@@ -50,9 +50,9 @@ class BDENTAL_PT_MainPanel(bpy.types.Panel):
 
 
 class BDENTAL_PT_ScanPanel(bpy.types.Panel):
-    """ BDENTAL Scan Panel"""
+    """ BDENTAL_FULL Scan Panel"""
 
-    bl_idname = "BDENTAL_PT_ScanPanel"
+    bl_idname = "BDENTAL_FULL_PT_ScanPanel"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"  # blender 2.7 and lower = TOOLS
     bl_category = "BDENTAL"
@@ -69,15 +69,30 @@ class BDENTAL_PT_ScanPanel(bpy.types.Panel):
         layout = self.layout
 
         row = layout.row()
-        row.prop(BDENTAL_Props, "UserProjectDir", text="Project Directory")
+        split = row.split()
+        col = split.column()
+        col.label(text="Project Directory :")
+        col = split.column()
+        col.prop(BDENTAL_Props, "UserProjectDir", text="")
 
         if BDENTAL_Props.UserProjectDir:
+
             row = layout.row()
-            row.prop(BDENTAL_Props, "DataType")
+            split = row.split()
+            col = split.column()
+            col.label(text="Scan Data Type :")
+            col = split.column()
+            col.prop(BDENTAL_Props, "DataType", text="")
 
             if BDENTAL_Props.DataType == "DICOM Series":
+
                 row = layout.row()
-                row.prop(BDENTAL_Props, "UserDcmDir", text="DICOM Folder")
+                split = row.split()
+                col = split.column()
+                col.label(text="DICOM Directory :")
+                col = split.column()
+                col.prop(BDENTAL_Props, "UserDcmDir", text="")
+
                 if BDENTAL_Props.UserDcmDir:
 
                     Box = layout.box()
@@ -89,7 +104,11 @@ class BDENTAL_PT_ScanPanel(bpy.types.Panel):
             if BDENTAL_Props.DataType == "3D Image File":
 
                 row = layout.row()
-                row.prop(BDENTAL_Props, "UserImageFile", text="File Path")
+                split = row.split()
+                col = split.column()
+                col.label(text="3D Image File :")
+                col = split.column()
+                col.prop(BDENTAL_Props, "UserImageFile", text="")
 
                 if BDENTAL_Props.UserImageFile:
 
@@ -104,18 +123,111 @@ class BDENTAL_PT_ScanPanel(bpy.types.Panel):
                 "CTVolume"
             ):
                 row = layout.row()
-                row.label(text=f"Threshold {Wmin} to {Wmax} HU:")
+                row.label(text=f"Threshold {Wmin} to {Wmax} HU :")
                 row = layout.row()
                 row.prop(BDENTAL_Props, "Treshold", text="TRESHOLD", slider=True)
 
+                layout.separator()
+
                 row = layout.row()
-                row.operator("bdental.tresh_segment")
+                row.label(text="Segments :")
+
+                Box = layout.box()
+                row = Box.row()
+                row.prop(BDENTAL_Props, "SoftTreshold", text="Soft Tissu")
+                row.prop(BDENTAL_Props, "SoftSegmentColor", text="")
+                row.prop(BDENTAL_Props, "SoftBool", text="")
+                row = Box.row()
+                row.prop(BDENTAL_Props, "BoneTreshold", text="Bone")
+                row.prop(BDENTAL_Props, "BoneSegmentColor", text="")
+                row.prop(BDENTAL_Props, "BoneBool", text="")
+
+                row = Box.row()
+                row.prop(BDENTAL_Props, "TeethTreshold", text="Teeth")
+                row.prop(BDENTAL_Props, "TeethSegmentColor", text="")
+                row.prop(BDENTAL_Props, "TeethBool", text="")
+
+                Box = layout.box()
+                row = Box.row()
+                row.operator("bdental.multitresh_segment")
             if context.object.name.startswith("BD") and context.object.name.endswith(
                 ("CTVolume", "SEGMENTATION")
             ):
-                row = layout.row()
-                row.operator("bdental.addslices", icon="EMPTY_AXIS")
+                row = Box.row()
+                split = row.split()
+                col = split.column()
+                col.operator("bdental.addslices", icon="EMPTY_AXIS")
+                col = split.column()
                 row.operator("bdental.multiview")
+
+
+# class BDENTAL_PT_ScanPanel(bpy.types.Panel):
+#     """ BDENTAL Scan Panel"""
+
+#     bl_idname = "BDENTAL_PT_ScanPanel"
+#     bl_space_type = "VIEW_3D"
+#     bl_region_type = "UI"  # blender 2.7 and lower = TOOLS
+#     bl_category = "BDENTAL"
+#     bl_label = "SCAN VIEWER"
+#     bl_options = {"DEFAULT_CLOSED"}
+
+#     def draw(self, context):
+
+#         BDENTAL_Props = context.scene.BDENTAL_Props
+#         GroupNodeName = BDENTAL_Props.GroupNodeName
+#         VGS = bpy.data.node_groups.get(GroupNodeName)
+
+#         # Draw Addon UI :
+#         layout = self.layout
+
+#         row = layout.row()
+#         row.prop(BDENTAL_Props, "UserProjectDir", text="Project Directory")
+
+#         if BDENTAL_Props.UserProjectDir:
+#             row = layout.row()
+#             row.prop(BDENTAL_Props, "DataType")
+
+#             if BDENTAL_Props.DataType == "DICOM Series":
+#                 row = layout.row()
+#                 row.prop(BDENTAL_Props, "UserDcmDir", text="DICOM Folder")
+#                 if BDENTAL_Props.UserDcmDir:
+
+#                     Box = layout.box()
+#                     # Box.alert = True
+#                     row = Box.row()
+#                     row.alignment = "CENTER"
+#                     row.scale_y = 2
+#                     row.operator("bdental.volume_render", icon="IMPORT")
+#             if BDENTAL_Props.DataType == "3D Image File":
+
+#                 row = layout.row()
+#                 row.prop(BDENTAL_Props, "UserImageFile", text="File Path")
+
+#                 if BDENTAL_Props.UserImageFile:
+
+#                     Box = layout.box()
+#                     # Box.alert = True
+#                     row = Box.row()
+#                     row.alignment = "CENTER"
+#                     row.scale_y = 2
+#                     row.operator("bdental.volume_render", icon="IMPORT")
+#         if context.object:
+#             if context.object.name.startswith("BD") and context.object.name.endswith(
+#                 "CTVolume"
+#             ):
+#                 row = layout.row()
+#                 row.label(text=f"Threshold {Wmin} to {Wmax} HU:")
+#                 row = layout.row()
+#                 row.prop(BDENTAL_Props, "Treshold", text="TRESHOLD", slider=True)
+
+#                 row = layout.row()
+#                 row.operator("bdental.tresh_segment")
+#             if context.object.name.startswith("BD") and context.object.name.endswith(
+#                 ("CTVolume", "SEGMENTATION")
+#             ):
+#                 row = layout.row()
+#                 row.operator("bdental.addslices", icon="EMPTY_AXIS")
+#                 row.operator("bdental.multiview")
 
 
 class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):

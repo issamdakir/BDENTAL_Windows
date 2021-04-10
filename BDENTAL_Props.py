@@ -16,8 +16,12 @@ def TresholdUpdateFunction(self, context):
     GpShader = BDENTAL_Props.GroupNodeName
     Treshold = BDENTAL_Props.Treshold
 
-    CtVolumeList = [obj for obj in bpy.context.scene.objects if obj.name.startswith("BD") and obj.name.endswith("_CTVolume") ]
-    if context.object in CtVolumeList :
+    CtVolumeList = [
+        obj
+        for obj in bpy.context.scene.objects
+        if obj.name.startswith("BD") and obj.name.endswith("_CTVolume")
+    ]
+    if context.object in CtVolumeList:
         Vol = context.object
         Preffix = Vol.name[:5]
         GpNode = bpy.data.node_groups.get(f"{Preffix}_{GpShader}")
@@ -30,8 +34,9 @@ def TresholdUpdateFunction(self, context):
             Wmin = DcmInfo["Wmin"]
             Wmax = DcmInfo["Wmax"]
             treshramp = GpNode.nodes["TresholdRamp"].color_ramp.elements[0]
-            value = (Treshold-Wmin)/(Wmax-Wmin) 
+            value = (Treshold - Wmin) / (Wmax - Wmin)
             treshramp = value
+
 
 def text_body_update(self, context):
     props = context.scene.ODC_modops_props
@@ -99,7 +104,7 @@ class BDENTAL_Props(bpy.types.PropertyGroup):
     # CT_Scan props :
     #############################################################################################
     #####################
-    
+
     UserProjectDir: StringProperty(
         name="Project Directory Path",
         default="",
@@ -213,6 +218,67 @@ class BDENTAL_Props(bpy.types.PropertyGroup):
         step=1,
         precision=1,
     )
+    SoftTreshold: IntProperty(
+        name="SOFT TISSU",
+        description="Soft Tissu Treshold",
+        default=-300,
+        min=-400,
+        max=3000,
+        soft_min=-400,
+        soft_max=3000,
+        step=1,
+    )
+    BoneTreshold: IntProperty(
+        name="BONE",
+        description="Bone Treshold",
+        default=600,
+        min=-400,
+        max=3000,
+        soft_min=-400,
+        soft_max=3000,
+        step=1,
+    )
+    TeethTreshold: IntProperty(
+        name="Teeth Treshold",
+        description="Teeth Treshold",
+        default=1400,
+        min=-400,
+        max=3000,
+        soft_min=-400,
+        soft_max=3000,
+        step=1,
+    )
+    SoftBool: BoolProperty(description="", default=False)
+    BoneBool: BoolProperty(description="", default=False)
+    TeethBool: BoolProperty(description="", default=False)
+
+    SoftSegmentColor: FloatVectorProperty(
+        name="Soft Segmentation Color",
+        description="Soft Color",
+        default=[0.8, 0.46, 0.4, 1.0],  # [0.63, 0.37, 0.30, 1.0]
+        soft_min=0.0,
+        soft_max=1.0,
+        size=4,
+        subtype="COLOR",
+    )
+    BoneSegmentColor: FloatVectorProperty(
+        name="Bone Segmentation Color",
+        description="Bone Color",
+        default=[0.44, 0.4, 0.5, 1.0],  # (0.8, 0.46, 0.4, 1.0),
+        soft_min=0.0,
+        soft_max=1.0,
+        size=4,
+        subtype="COLOR",
+    )
+    TeethSegmentColor: FloatVectorProperty(
+        name="Teeth Segmentation Color",
+        description="Teeth Color",
+        default=[0.55, 0.645, 0.67, 1.000000],  # (0.8, 0.46, 0.4, 1.0),
+        soft_min=0.0,
+        soft_max=1.0,
+        size=4,
+        subtype="COLOR",
+    )
 
     #######################
 
@@ -250,7 +316,12 @@ class BDENTAL_Props(bpy.types.PropertyGroup):
 
     #####################
 
-    Cutting_Tools_Types = ["Curve Cutter 1", "Curve Cutter 2", "Square Cutting Tool", "Paint Cutter"]
+    Cutting_Tools_Types = [
+        "Curve Cutter 1",
+        "Curve Cutter 2",
+        "Square Cutting Tool",
+        "Paint Cutter",
+    ]
     items = []
     for i in range(len(Cutting_Tools_Types)):
         item = (
@@ -272,6 +343,8 @@ class BDENTAL_Props(bpy.types.PropertyGroup):
         items.append(item)
 
     cutting_mode: EnumProperty(items=items, description="", default="Cut inner")
+
+
 #################################################################################################
 # Registration :
 #################################################################################################
