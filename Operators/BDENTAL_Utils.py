@@ -217,7 +217,22 @@ def AddNode(nodes, type, name):
     return node
 
 
-def AddOcclusalPoint(name, color, CollName=None):
+def AddFrankfortPoint(PointsList, color, CollName):
+    FrankfortPointsNames = ["R_Or", "L_Or", "R_Po", "L_Po"]
+    if not PointsList:
+        P = AddMarkupPoint(FrankfortPointsNames[0], color, CollName)
+        return P
+    if PointsList:
+        CurrentPointsNames = [P.name for P in PointsList]
+        P_Names = [P for P in FrankfortPointsNames if not P in CurrentPointsNames]
+        if P_Names:
+            P = AddMarkupPoint(P_Names[0], color, CollName)
+            return P
+    else:
+        return None
+
+
+def AddMarkupPoint(name, color, CollName=None):
 
     loc = bpy.context.scene.cursor.location
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.2, location=loc)
@@ -231,10 +246,79 @@ def AddOcclusalPoint(name, color, CollName=None):
     matName = f"{name}_Mat"
     mat = bpy.data.materials.get(matName) or bpy.data.materials.new(matName)
     mat.diffuse_color = color
-    mat.use_nodes = True
+    mat.use_nodes = False
     P.active_material = mat
     P.show_name = True
     return P
+
+
+def PointsToFrankfortPlane(ctx, Model, CurrentPointsList, color, CollName=None):
+
+    Dim = max(Model.dimensions) * 1.5
+    R_Or, L_Or, R_Po, L_Po = CurrentPointsList
+
+    Rco = R_Po.location
+    Aco = (R_Or.location + L_Or.location) / 2
+    Lco = L_Po.location
+
+    Center = (Rco + Aco + Lco) / 3
+
+    FrankZ = (Rco - Center).cross((Aco - Center)).normalized()
+    FrankX = FrankZ.cross((Aco - Center)).normalized()
+    FrankY = FrankZ.cross(FrankX).normalized()
+
+    FrankMtx = Matrix((FrankX, FrankY, FrankZ)).to_4x4().transposed()
+    FrankMtx.translation = Center
+
+    SagZ = -FrankX
+    SagX = FrankZ
+    SagY = FrankY
+
+    SagMtx = Matrix((SagX, SagY, SagZ)).to_4x4().transposed()
+    SagMtx.translation = Center
+
+    CorZ = -FrankY
+    CorX = FrankX
+    CorY = FrankZ
+
+    CorMtx = Matrix((CorX, CorY, CorZ)).to_4x4().transposed()
+    CorMtx.translation = Center
+
+    bpy.ops.mesh.primitive_plane_add(ctx, size=Dim)
+    FrankfortPlane = bpy.context.object
+    name = "Frankfort_Plane"
+    FrankfortPlane.name = name
+    FrankfortPlane.data.name = f"{name}_Mesh"
+    FrankfortPlane.matrix_world = FrankMtx
+    matName = f"RefPlane_Mat"
+    mat = bpy.data.materials.get(matName) or bpy.data.materials.new(matName)
+    mat.diffuse_color = color
+    mat.use_nodes = False
+    FrankfortPlane.active_material = mat
+
+    if CollName:
+        MoveToCollection(FrankfortPlane, CollName)
+    # Add Sagital Plane :
+    bpy.ops.object.duplicate_move()
+    SagPlane = bpy.context.object
+    name = "Sagital_Median_Plane"
+    SagPlane.name = name
+    SagPlane.data.name = f"{name}_Mesh"
+    SagPlane.matrix_world = SagMtx
+    if CollName:
+        MoveToCollection(SagPlane, CollName)
+
+    # Add Coronal Plane :
+    bpy.ops.object.duplicate_move()
+    CorPlane = bpy.context.object
+    name = "Coronal_Plane"
+    CorPlane.name = name
+    CorPlane.data.name = f"{name}_Mesh"
+    CorPlane.matrix_world = CorMtx
+    if CollName:
+        MoveToCollection(CorPlane, CollName)
+
+    return [FrankfortPlane, SagPlane, CorPlane]
 
 
 def PointsToOcclusalPlane(ctx, Model, R_pt, A_pt, L_pt, color, subdiv):
@@ -264,7 +348,7 @@ def PointsToOcclusalPlane(ctx, Model, R_pt, A_pt, L_pt, color, subdiv):
     matName = f"{name}_Mat"
     mat = bpy.data.materials.get(matName) or bpy.data.materials.new(matName)
     mat.diffuse_color = color
-    mat.use_nodes = True
+    mat.use_nodes = False
     OcclusalPlane.active_material = mat
     if subdiv:
         bpy.ops.object.mode_set(mode="EDIT")
@@ -582,8 +666,8 @@ def VolumeRender(DcmInfo, GpShader, ShadersBlendFile):
                 space.shading.type = "MATERIAL"
 
     for i in range(3):
-        Voxel.lock_location[i] = True
-        Voxel.lock_rotation[i] = True
+        # Voxel.lock_location[i] = True
+        # Voxel.lock_rotation[i] = True
         Voxel.lock_scale[i] = True
 
     Finish = Tcounter()
@@ -688,8 +772,11 @@ def AxialSliceUpdate(scene):
 
             if Condition:
 
+                CTVolume = bpy.data.objects.get(f"{Preffix}_CTVolume")
+                TransformMatrix = CTVolume.matrix_world
+
                 SlicesDir = AbsPath(DcmInfo["SlicesDir"])
-                TransformMatrix = DcmInfo["TransformMatrix"]
+                # TransformMatrix = DcmInfo["TransformMatrix"]
                 ImageName = f"{Plane.name}.png"
                 ImagePath = join(SlicesDir, ImageName)
 
@@ -791,9 +878,11 @@ def CoronalSliceUpdate(scene):
 
             if Condition2:
 
-                SlicesDir = AbsPath(DcmInfo["SlicesDir"])
+                CTVolume = bpy.data.objects.get(f"{Preffix}_CTVolume")
+                TransformMatrix = CTVolume.matrix_world
 
-                TransformMatrix = DcmInfo["TransformMatrix"]
+                SlicesDir = AbsPath(DcmInfo["SlicesDir"])
+                # TransformMatrix = DcmInfo["TransformMatrix"]
                 ImageName = f"{Plane.name}.png"
                 ImagePath = join(SlicesDir, ImageName)
 
@@ -896,8 +985,11 @@ def SagitalSliceUpdate(scene):
 
             if Condition2:
 
+                CTVolume = bpy.data.objects.get(f"{Preffix}_CTVolume")
+                TransformMatrix = CTVolume.matrix_world
+
                 SlicesDir = AbsPath(DcmInfo["SlicesDir"])
-                TransformMatrix = DcmInfo["TransformMatrix"]
+                # TransformMatrix = DcmInfo["TransformMatrix"]
                 ImageName = f"{Plane.name}.png"
                 ImagePath = join(SlicesDir, ImageName)
 
@@ -1015,7 +1107,7 @@ def Add_Cam_To_Plane(Plane, CamDistance, ClipOffset):
 
 ####################################################################
 def AddAxialSlice(Preffix, DcmInfo):
-
+    CTVolume = bpy.data.objects.get(f"{Preffix}_CTVolume")
     name = f"1_{Preffix}_AXIAL_SLICE"
     Sp, Sz, Origin, Direction, VC = (
         DcmInfo["Spacing"],
@@ -1045,7 +1137,8 @@ def AddAxialSlice(Preffix, DcmInfo):
     AxialDims = Vector((DimX, DimY, 0.0))
     AxialPlane.dimensions = AxialDims
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    AxialPlane.location = VC
+    # AxialPlane.location = VC
+    AxialPlane.matrix_world = CTVolume.matrix_world
     # Add Material :
     mat = bpy.data.materials.get(f"{name}_mat") or bpy.data.materials.new(f"{name}_mat")
 
@@ -1087,7 +1180,7 @@ def AddAxialSlice(Preffix, DcmInfo):
 
 
 def AddCoronalSlice(Preffix, DcmInfo):
-
+    CTVolume = bpy.data.objects.get(f"{Preffix}_CTVolume")
     name = f"2_{Preffix}_CORONAL_SLICE"
     Sp, Sz, Origin, Direction, VC = (
         DcmInfo["Spacing"],
@@ -1117,8 +1210,11 @@ def AddCoronalSlice(Preffix, DcmInfo):
     CoronalDims = Vector((DimX, DimY, 0.0))
     CoronalPlane.dimensions = CoronalDims
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    CoronalPlane.rotation_euler = Euler((pi / 2, 0.0, 0.0), "XYZ")
-    CoronalPlane.location = VC
+    rotation_euler = Euler((pi / 2, 0.0, 0.0), "XYZ")
+    RotMtx = rotation_euler.to_matrix().to_4x4()
+    CoronalPlane.matrix_world = CTVolume.matrix_world @ RotMtx
+    # CoronalPlane.rotation_euler = Euler((pi / 2, 0.0, 0.0), "XYZ")
+    # CoronalPlane.location = VC
     # Add Material :
     mat = bpy.data.materials.get(f"{name}_mat") or bpy.data.materials.new(f"{name}_mat")
 
@@ -1160,7 +1256,7 @@ def AddCoronalSlice(Preffix, DcmInfo):
 
 
 def AddSagitalSlice(Preffix, DcmInfo):
-
+    CTVolume = bpy.data.objects.get(f"{Preffix}_CTVolume")
     name = f"3_{Preffix}_SAGITAL_SLICE"
     Sp, Sz, Origin, Direction, VC = (
         DcmInfo["Spacing"],
@@ -1190,8 +1286,10 @@ def AddSagitalSlice(Preffix, DcmInfo):
     SagitalDims = Vector((DimX, DimY, 0.0))
     SagitalPlane.dimensions = SagitalDims
     bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
-    SagitalPlane.rotation_euler = Euler((pi / 2, 0.0, -pi / 2), "XYZ")
-    SagitalPlane.location = VC
+    rotation_euler = Euler((pi / 2, 0.0, -pi / 2), "XYZ")
+    RotMtx = rotation_euler.to_matrix().to_4x4()
+    SagitalPlane.matrix_world = CTVolume.matrix_world @ RotMtx
+    # SagitalPlane.location = VC
     # Add Material :
     mat = bpy.data.materials.get(f"{name}_mat") or bpy.data.materials.new(f"{name}_mat")
 
@@ -1575,7 +1673,9 @@ def CV2_progress_bar(q, iter=100):
                             round(((i + 1) / iterations), 2) * (finish - start)
                         )
                         pourcentage = int(ProgRatio * 100)
-                        progress_bar(pourcentage, Uptxt, Delay = int(Delay*1000))  # , Delay = int(Delay*1000)
+                        progress_bar(
+                            pourcentage, Uptxt, Delay=int(Delay * 1000)
+                        )  # , Delay = int(Delay*1000)
                         sleep(Delay)
                         i += 1
                     else:

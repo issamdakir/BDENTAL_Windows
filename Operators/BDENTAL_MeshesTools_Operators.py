@@ -12,6 +12,7 @@ from .BDENTAL_Utils import *
 
 Addon_Enable(AddonName="mesh_looptools", Enable=True)
 
+
 class BDENTAL_OT_JoinObjects(bpy.types.Operator):
     " Join Objects "
 
@@ -21,15 +22,18 @@ class BDENTAL_OT_JoinObjects(bpy.types.Operator):
     def execute(self, context):
 
         ActiveObj = context.active_object
-        condition = (ActiveObj and ActiveObj in context.selected_objects and len(context.selected_objects)>=2)
+        condition = (
+            ActiveObj
+            and ActiveObj in context.selected_objects
+            and len(context.selected_objects) >= 2
+        )
 
-        if not condition :
+        if not condition:
 
             message = [" Please select objects to join !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
-
 
         else:
 
@@ -51,31 +55,38 @@ class BDENTAL_OT_SeparateObjects(bpy.types.Operator):
     Separate_Modes_List = ["Selection", "Loose Parts", ""]
     items = []
     for i in range(len(Separate_Modes_List)):
-        item = (str(Separate_Modes_List[i]), str(Separate_Modes_List[i]), str(""), int(i))
+        item = (
+            str(Separate_Modes_List[i]),
+            str(Separate_Modes_List[i]),
+            str(""),
+            int(i),
+        )
         items.append(item)
 
-    SeparateMode: EnumProperty(items=items, description="SeparateMode", default="Loose Parts")
+    SeparateMode: EnumProperty(
+        items=items, description="SeparateMode", default="Loose Parts"
+    )
 
     def execute(self, context):
-        
-        if self.SeparateMode == "Loose Parts" :
+
+        if self.SeparateMode == "Loose Parts":
             bpy.ops.mesh.separate(type="LOOSE")
 
-        if self.SeparateMode == "Selection" :
+        if self.SeparateMode == "Selection":
             bpy.ops.object.mode_set(mode="EDIT")
-            bpy.ops.mesh.separate(type='SELECTED')
+            bpy.ops.mesh.separate(type="SELECTED")
 
         bpy.ops.object.mode_set(mode="OBJECT")
 
         Parts = list(context.selected_objects)
 
-        if Parts and len(Parts) > 1 :
-            for obj in Parts :
+        if Parts and len(Parts) > 1:
+            for obj in Parts:
                 bpy.ops.object.select_all(action="DESELECT")
                 obj.select_set(True)
                 bpy.context.view_layer.objects.active = obj
                 bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
-                
+
             bpy.ops.object.select_all(action="DESELECT")
             Parts[-1].select_set(True)
             bpy.context.view_layer.objects.active = Parts[-1]
@@ -85,18 +96,23 @@ class BDENTAL_OT_SeparateObjects(bpy.types.Operator):
     def invoke(self, context, event):
 
         self.ActiveObj = context.active_object
-        condition = (self.ActiveObj and self.ActiveObj.type == 'MESH' and self.ActiveObj in bpy.context.selected_objects )
+        condition = (
+            self.ActiveObj
+            and self.ActiveObj.type == "MESH"
+            and self.ActiveObj in bpy.context.selected_objects
+        )
 
-        if not condition :
+        if not condition:
 
             message = [" Please select the target object !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
 
-        else :
+        else:
             wm = context.window_manager
             return wm.invoke_props_dialog(self)
+
 
 #######################################################################################
 # Parent model operator :
@@ -111,10 +127,18 @@ class BDENTAL_OT_Parent(bpy.types.Operator):
     def execute(self, context):
 
         ActiveObj = context.active_object
-        condition = (ActiveObj and ActiveObj in context.selected_objects and len(context.selected_objects)>=2)
+        condition = (
+            ActiveObj
+            and ActiveObj in context.selected_objects
+            and len(context.selected_objects) >= 2
+        )
 
-        if not condition :
-            message = [" Please select child objects,","parent object should be," ,"the last one selected!"]
+        if not condition:
+            message = [
+                " Please select child objects,",
+                "parent object should be,",
+                "the last one selected!",
+            ]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
@@ -143,9 +167,9 @@ class BDENTAL_OT_Unparent(bpy.types.Operator):
     def execute(self, context):
 
         ActiveObj = context.active_object
-        condition = (ActiveObj and ActiveObj in bpy.context.selected_objects )
+        condition = ActiveObj and ActiveObj in bpy.context.selected_objects
 
-        if not condition :
+        if not condition:
 
             message = [" Please select the target objects !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
@@ -158,6 +182,7 @@ class BDENTAL_OT_Unparent(bpy.types.Operator):
             bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
 
             return {"FINISHED"}
+
 
 #######################################################################################
 # Align model to front operator :
@@ -173,9 +198,13 @@ class BDENTAL_OT_align_to_front(bpy.types.Operator):
     def execute(self, context):
 
         ActiveObj = context.active_object
-        condition = (ActiveObj and ActiveObj.type == 'MESH' and ActiveObj in bpy.context.selected_objects )
+        condition = (
+            ActiveObj
+            and ActiveObj.type == "MESH"
+            and ActiveObj in bpy.context.selected_objects
+        )
 
-        if not condition :
+        if not condition:
 
             message = [" Please select the target object !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
@@ -267,9 +296,13 @@ class BDENTAL_OT_to_center(bpy.types.Operator):
     def invoke(self, context, event):
 
         ActiveObj = context.active_object
-        condition = (ActiveObj and ActiveObj.type == 'MESH' and ActiveObj in bpy.context.selected_objects )
+        condition = (
+            ActiveObj
+            and ActiveObj.type == "MESH"
+            and ActiveObj in bpy.context.selected_objects
+        )
 
-        if not condition :
+        if not condition:
 
             message = [" Please select the target object !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
@@ -289,7 +322,10 @@ class BDENTAL_OT_to_center(bpy.types.Operator):
 
                 bpy.ops.wm.tool_set_by_id(name="builtin.cursor")
 
-                message = [" Please move cursor to incisal Midline"," and click < ENTER >!"]
+                message = [
+                    " Please move cursor to incisal Midline",
+                    " and click < ENTER >!",
+                ]
                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
                 context.window_manager.modal_handler_add(self)
@@ -320,6 +356,7 @@ class BDENTAL_OT_center_cursor(bpy.types.Operator):
 
         return {"FINISHED"}
 
+
 #######################################################################################
 # Add Occlusal Plane :
 class BDENTAL_OT_OcclusalPlane(bpy.types.Operator):
@@ -330,7 +367,7 @@ class BDENTAL_OT_OcclusalPlane(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     CollName = "Occlusal Points"
-    OcclusalPionts = []
+    OcclusalPoints = []
 
     def modal(self, context, event):
 
@@ -361,66 +398,96 @@ class BDENTAL_OT_OcclusalPlane(bpy.types.Operator):
         if event.type == "R":
             # Add Right point :
             if event.value == ("PRESS"):
-                color = (1,0,0,1) #red
+                color = (1, 0, 0, 1)  # red
                 CollName = self.CollName
                 name = "Right_Occlusal_Point"
                 OldPoint = bpy.data.objects.get(name)
-                if OldPoint :
+                if OldPoint:
                     bpy.data.objects.remove(OldPoint)
-                NewPoint = AddOcclusalPoint(name, color, CollName)
+                NewPoint = AddMarkupPoint(name, color, CollName)
                 self.RightPoint = NewPoint
                 bpy.ops.object.select_all(action="DESELECT")
-                self.OcclusalPoints = [obj for obj in bpy.context.scene.objects if obj.name.endswith("_Occlusal_Point") and not obj is self.RightPoint]
+                self.OcclusalPoints = [
+                    obj
+                    for obj in bpy.context.scene.objects
+                    if obj.name.endswith("_Occlusal_Point")
+                    and not obj is self.RightPoint
+                ]
                 self.OcclusalPoints.append(self.RightPoint)
 
         #########################################
         if event.type == "A":
             # Add Right point :
             if event.value == ("PRESS"):
-                color = (0,1,0,1) # green
+                color = (0, 1, 0, 1)  # green
                 CollName = self.CollName
                 name = "Anterior_Occlusal_Point"
                 OldPoint = bpy.data.objects.get(name)
-                if OldPoint :
+                if OldPoint:
                     bpy.data.objects.remove(OldPoint)
-                NewPoint = AddOcclusalPoint(name, color, CollName)
+                NewPoint = AddMarkupPoint(name, color, CollName)
                 self.AnteriorPoint = NewPoint
                 bpy.ops.object.select_all(action="DESELECT")
-                self.OcclusalPoints = [obj for obj in bpy.context.scene.objects if obj.name.endswith("_Occlusal_Point") and not obj is self.AnteriorPoint]
+                self.OcclusalPoints = [
+                    obj
+                    for obj in bpy.context.scene.objects
+                    if obj.name.endswith("_Occlusal_Point")
+                    and not obj is self.AnteriorPoint
+                ]
                 self.OcclusalPoints.append(self.AnteriorPoint)
         #########################################
         if event.type == "L":
             # Add Right point :
             if event.value == ("PRESS"):
-                color = (0,0,1,1) # blue
+                color = (0, 0, 1, 1)  # blue
                 CollName = self.CollName
                 name = "Left_Occlusal_Point"
                 OldPoint = bpy.data.objects.get(name)
-                if OldPoint :
+                if OldPoint:
                     bpy.data.objects.remove(OldPoint)
-                NewPoint = AddOcclusalPoint(name, color, CollName)
+                NewPoint = AddMarkupPoint(name, color, CollName)
                 self.LeftPoint = NewPoint
                 bpy.ops.object.select_all(action="DESELECT")
-                self.OcclusalPoints = [obj for obj in bpy.context.scene.objects if obj.name.endswith("_Occlusal_Point") and not obj is self.LeftPoint]
+                self.OcclusalPoints = [
+                    obj
+                    for obj in bpy.context.scene.objects
+                    if obj.name.endswith("_Occlusal_Point")
+                    and not obj is self.LeftPoint
+                ]
                 self.OcclusalPoints.append(self.LeftPoint)
         #########################################
 
-        elif event.type == ("DEL"):
+        elif event.type == ("DEL") and event.value == ("PRESS"):
+            print("active object : ", context.object)
+            print("Points list : ", self.OcclusalPoints)
 
-            if self.OcclusalPionts :
-                self.OcclusalPionts.pop()
-
-            return {"PASS_THROUGH"}
+            if self.OcclusalPoints:
+                P = self.OcclusalPoints.pop()
+                bpy.data.objects.remove(P)
+            print("Points list : ", self.OcclusalPoints)
+            # return {"PASS_THROUGH"}
 
         elif event.type == "RET":
             if event.value == ("PRESS"):
 
                 Override, area3D, space3D = CtxOverride(context)
 
-                OcclusalPlane = PointsToOcclusalPlane(Override,self.Target, self.RightPoint,self.AnteriorPoint,self.LeftPoint,color=(0.0, 0.0, 0.2, 0.7),subdiv=50)
-                self.OcclusalPoints = [obj for obj in bpy.context.scene.objects if obj.name.endswith("_Occlusal_Point")]
-                if self.OcclusalPoints :
-                    for P in self.OcclusalPoints :
+                OcclusalPlane = PointsToOcclusalPlane(
+                    Override,
+                    self.Target,
+                    self.RightPoint,
+                    self.AnteriorPoint,
+                    self.LeftPoint,
+                    color=(0.0, 0.0, 0.2, 0.7),
+                    subdiv=50,
+                )
+                self.OcclusalPoints = [
+                    obj
+                    for obj in bpy.context.scene.objects
+                    if obj.name.endswith("_Occlusal_Point")
+                ]
+                if self.OcclusalPoints:
+                    for P in self.OcclusalPoints:
                         bpy.data.objects.remove(P)
                 ##########################################################
                 space3D.overlay.show_outline_selected = True
@@ -434,36 +501,35 @@ class BDENTAL_OT_OcclusalPlane(bpy.types.Operator):
                 ###########################################################
 
                 bpy.ops.object.hide_view_clear(Override)
-                bpy.ops.object.select_all(action='DESELECT')
-#                bpy.ops.object.select_all(Override, action="DESELECT")
+                bpy.ops.object.select_all(action="DESELECT")
+                #                bpy.ops.object.select_all(Override, action="DESELECT")
                 for obj in self.visibleObjects:
                     obj.select_set(True)
                     bpy.context.view_layer.objects.active = obj
                 OcclusalPlane.select_set(True)
                 bpy.context.view_layer.objects.active = OcclusalPlane
                 bpy.ops.object.hide_view_set(Override, unselected=True)
-                bpy.ops.object.select_all(action='DESELECT')
-#                bpy.ops.object.select_all(Override, action="DESELECT")
+                bpy.ops.object.select_all(action="DESELECT")
+                #                bpy.ops.object.select_all(Override, action="DESELECT")
                 OcclusalPlane.select_set(True)
                 bpy.ops.wm.tool_set_by_id(Override, name="builtin.select")
                 bpy.context.scene.tool_settings.use_snap = False
                 space3D.shading.background_color = self.background_color
                 space3D.shading.background_type = self.background_type
-                
+
                 bpy.context.scene.cursor.location = (0, 0, 0)
                 bpy.ops.screen.region_toggle(Override, region_type="UI")
                 bpy.ops.screen.screen_full_area(Override)
 
-                
                 ##########################################################
 
                 finish = Tcounter()
-                
+
                 return {"FINISHED"}
 
         elif event.type == ("ESC"):
 
-            for P in self.OcclusalPionts :
+            for P in self.OcclusalPoints:
                 bpy.data.objects.remove(P)
 
             Override, area3D, space3D = CtxOverride(context)
@@ -479,43 +545,42 @@ class BDENTAL_OT_OcclusalPlane(bpy.types.Operator):
             ###########################################################
 
             bpy.ops.object.hide_view_clear(Override)
-            bpy.ops.object.select_all(action='DESELECT')
-#            bpy.ops.object.select_all(Override, action="DESELECT")
+            bpy.ops.object.select_all(action="DESELECT")
+            #            bpy.ops.object.select_all(Override, action="DESELECT")
             for obj in self.visibleObjects:
                 obj.select_set(True)
                 bpy.context.view_layer.objects.active = obj
             bpy.ops.object.hide_view_set(Override, unselected=True)
-            bpy.ops.object.select_all(action='DESELECT')
-#            bpy.ops.object.select_all(Override, action="DESELECT")
+            bpy.ops.object.select_all(action="DESELECT")
+            #            bpy.ops.object.select_all(Override, action="DESELECT")
             bpy.ops.wm.tool_set_by_id(Override, name="builtin.select")
             bpy.context.scene.tool_settings.use_snap = False
             space3D.shading.background_color = self.background_color
             space3D.shading.background_type = self.background_type
-            
+
             bpy.context.scene.cursor.location = (0, 0, 0)
             bpy.ops.screen.region_toggle(Override, region_type="UI")
             bpy.ops.screen.screen_full_area(Override)
 
             message = [
-                    " The Occlusal Plane Operation was Cancelled!",
-                ]
+                " The Occlusal Plane Operation was Cancelled!",
+            ]
 
-            ShowMessageBox2(message=message, icon="COLORSET_03_VEC")
+            ShowMessageBox(message=message, icon="COLORSET_03_VEC")
 
             return {"CANCELLED"}
 
         return {"RUNNING_MODAL"}
-        
 
     def invoke(self, context, event):
         Condition_1 = bpy.context.selected_objects and bpy.context.active_object
 
-        if not Condition_1 :
+        if not Condition_1:
 
             message = [
                 "Please select Target object",
             ]
-            ShowMessageBox2(message=message, icon="COLORSET_02_VEC")
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
 
@@ -524,9 +589,8 @@ class BDENTAL_OT_OcclusalPlane(bpy.types.Operator):
             self.Target = context.active_object
             bpy.context.scene.tool_settings.snap_elements = {"FACE"}
 
-
             if context.space_data.type == "VIEW_3D":
-                
+
                 # Prepare scene  :
                 ##########################################################
 
@@ -548,11 +612,9 @@ class BDENTAL_OT_OcclusalPlane(bpy.types.Operator):
 
                 ###########################################################
                 self.TargetObject = bpy.context.active_object
-                
 
                 self.TargetPoints = []
 
-            
                 self.visibleObjects = bpy.context.visible_objects.copy()
                 self.background_type = bpy.context.space_data.shading.background_type
                 bpy.context.space_data.shading.background_type = "VIEWPORT"
@@ -564,8 +626,8 @@ class BDENTAL_OT_OcclusalPlane(bpy.types.Operator):
                 bpy.ops.screen.screen_full_area()
                 Override, area3D, space3D = CtxOverride(context)
                 bpy.ops.screen.region_toggle(Override, region_type="UI")
-                bpy.ops.object.select_all(action='DESELECT')
-#                bpy.ops.object.select_all(Override, action="DESELECT")
+                bpy.ops.object.select_all(action="DESELECT")
+                #                bpy.ops.object.select_all(Override, action="DESELECT")
                 context.window_manager.modal_handler_add(self)
 
                 return {"RUNNING_MODAL"}
@@ -603,12 +665,13 @@ class BDENTAL_OT_OcclusalPlaneInfo(bpy.types.Operator):
 
         return {"FINISHED"}
 
+
 #######################################################################################
 # Decimate model operator :
 
 
 class BDENTAL_OT_decimate(bpy.types.Operator):
-    """ Decimate to ratio """ 
+    """ Decimate to ratio """
 
     bl_idname = "bdental.decimate"
     bl_label = "Decimate Model"
@@ -619,9 +682,13 @@ class BDENTAL_OT_decimate(bpy.types.Operator):
         decimate_ratio = round(BDENTAL_Props.decimate_ratio, 2)
 
         ActiveObj = context.active_object
-        condition = (ActiveObj and ActiveObj.type == 'MESH' and ActiveObj in bpy.context.selected_objects )
+        condition = (
+            ActiveObj
+            and ActiveObj.type == "MESH"
+            and ActiveObj in bpy.context.selected_objects
+        )
 
-        if not condition :
+        if not condition:
 
             message = [" Please select the target object !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
@@ -648,7 +715,7 @@ class BDENTAL_OT_fill(bpy.types.Operator):
     bl_label = "FILL"
     bl_options = {"REGISTER", "UNDO"}
 
-    Fill_treshold : IntProperty(
+    Fill_treshold: IntProperty(
         name="Hole Fill Treshold",
         description="Hole Fill Treshold",
         default=400,
@@ -657,7 +724,7 @@ class BDENTAL_OT_fill(bpy.types.Operator):
     def execute(self, context):
 
         Mode = self.ActiveObj.mode
-        
+
         if not Mode == "EDIT":
             bpy.ops.object.mode_set(mode="EDIT")
         bpy.context.tool_settings.mesh_select_mode = (True, False, False)
@@ -676,9 +743,7 @@ class BDENTAL_OT_fill(bpy.types.Operator):
         )
         bpy.ops.mesh.select_all(action="SELECT")
         bpy.ops.mesh.fill_holes(sides=self.Fill_treshold)
-        bpy.ops.mesh.quads_convert_to_tris(
-            quad_method="BEAUTY", ngon_method="BEAUTY"
-        )
+        bpy.ops.mesh.quads_convert_to_tris(quad_method="BEAUTY", ngon_method="BEAUTY")
         bpy.ops.mesh.select_all(action="DESELECT")
 
         bpy.ops.object.mode_set(mode=Mode)
@@ -687,18 +752,23 @@ class BDENTAL_OT_fill(bpy.types.Operator):
 
     def invoke(self, context, event):
         self.ActiveObj = context.active_object
-        condition = (self.ActiveObj and self.ActiveObj.type == 'MESH' and self.ActiveObj in bpy.context.selected_objects )
+        condition = (
+            self.ActiveObj
+            and self.ActiveObj.type == "MESH"
+            and self.ActiveObj in bpy.context.selected_objects
+        )
 
-        if not condition :
+        if not condition:
 
             message = [" Please select the target object !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
 
-        else :
+        else:
             wm = context.window_manager
             return wm.invoke_props_dialog(self)
+
 
 #######################################################################################
 # Retopo smooth operator :
@@ -714,9 +784,13 @@ class BDENTAL_OT_retopo_smooth(bpy.types.Operator):
     def execute(self, context):
 
         ActiveObj = context.active_object
-        condition = (ActiveObj and ActiveObj.type == 'MESH' and ActiveObj in bpy.context.selected_objects )
+        condition = (
+            ActiveObj
+            and ActiveObj.type == "MESH"
+            and ActiveObj in bpy.context.selected_objects
+        )
 
-        if not condition :
+        if not condition:
 
             message = [" Please select the target object !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
@@ -764,9 +838,13 @@ class BDENTAL_OT_clean_mesh(bpy.types.Operator):
     def execute(self, context):
 
         ActiveObj = context.active_object
-        condition = (ActiveObj and ActiveObj.type == 'MESH' and ActiveObj in bpy.context.selected_objects )
+        condition = (
+            ActiveObj
+            and ActiveObj.type == "MESH"
+            and ActiveObj in bpy.context.selected_objects
+        )
 
-        if not condition :
+        if not condition:
 
             message = [" Please select the target object !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
@@ -838,6 +916,7 @@ class BDENTAL_OT_clean_mesh(bpy.types.Operator):
 
             return {"FINISHED"}
 
+
 class BDENTAL_OT_VoxelRemesh(bpy.types.Operator):
     """ Voxel Remesh Operator """
 
@@ -861,7 +940,7 @@ class BDENTAL_OT_VoxelRemesh(bpy.types.Operator):
         ActiveObj = context.active_object
         # get model to clean :
         bpy.ops.object.mode_set(mode="OBJECT")
-        ActiveObj.data.remesh_mode = 'VOXEL'
+        ActiveObj.data.remesh_mode = "VOXEL"
         ActiveObj.data.remesh_voxel_size = self.VoxelSize
         ActiveObj.data.use_remesh_fix_poles = True
         ActiveObj.data.use_remesh_smooth_normals = True
@@ -873,19 +952,18 @@ class BDENTAL_OT_VoxelRemesh(bpy.types.Operator):
     def invoke(self, context, event):
 
         ActiveObj = context.active_object
-        if not ActiveObj :
+        if not ActiveObj:
 
             message = [" Please select the target object !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
-            
 
-        else :
+        else:
 
-            condition = (ActiveObj.type == 'MESH' and ActiveObj.select_get() == True )
+            condition = ActiveObj.type == "MESH" and ActiveObj.select_get() == True
 
-            if not condition :
+            if not condition:
 
                 message = [" Please select the target object !"]
                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
@@ -897,6 +975,8 @@ class BDENTAL_OT_VoxelRemesh(bpy.types.Operator):
                 self.VoxelSize = 0.1
                 wm = context.window_manager
                 return wm.invoke_props_dialog(self)
+
+
 #######################################################################################
 ###################################### Cutters ########################################
 #######################################################################################
@@ -1005,7 +1085,9 @@ class BDENTAL_OT_CurveCutterAdd(bpy.types.Operator):
 
                 # Assign Model name to CuttingTarget property :
                 CuttingTarget = bpy.context.view_layer.objects.active
-                bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp = CuttingTarget.name
+                bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp = (
+                    CuttingTarget.name
+                )
 
                 bpy.ops.object.mode_set(mode="OBJECT")
                 bpy.ops.object.hide_view_clear()
@@ -1051,9 +1133,13 @@ class BDENTAL_OT_CurveCutterCut(bpy.types.Operator):
         bpy.ops.object.mode_set(mode="OBJECT")
         bpy.ops.object.select_all(action="DESELECT")
 
-        CurveCuttersList = [obj for obj in context.scene.objects if obj.type == 'CURVE' and obj.name.startswith("BDENTAL_CuttingCurve")]
+        CurveCuttersList = [
+            obj
+            for obj in context.scene.objects
+            if obj.type == "CURVE" and obj.name.startswith("BDENTAL_CuttingCurve")
+        ]
         CurveMeshesList = []
-        for CurveCutter in CurveCuttersList :
+        for CurveCutter in CurveCuttersList:
             bpy.ops.object.select_all(action="DESELECT")
             CurveCutter.select_set(True)
             bpy.context.view_layer.objects.active = CurveCutter
@@ -1078,13 +1164,12 @@ class BDENTAL_OT_CurveCutterCut(bpy.types.Operator):
             CurveMeshesList.append(CurveMesh)
 
         bpy.ops.object.select_all(action="DESELECT")
-        for obj in CurveMeshesList :
+        for obj in CurveMeshesList:
             obj.select_set(True)
             bpy.context.view_layer.objects.active = obj
 
         bpy.ops.object.join()
         CurveCutter = context.object
-
 
         bpy.context.tool_settings.mesh_select_mode = (True, False, False)
         bpy.context.scene.tool_settings.use_snap = False
@@ -1142,7 +1227,7 @@ class BDENTAL_OT_CurveCutterCut(bpy.types.Operator):
         bpy.ops.object.vertex_group_select()
         bpy.ops.mesh.delete(type="FACE")
 
-        bpy.ops.ed.undo_push()       
+        bpy.ops.ed.undo_push()
         # 1st methode :
         SplitSeparator(CuttingTarget=CuttingTarget)
         PartsFilter()
@@ -1153,8 +1238,6 @@ class BDENTAL_OT_CurveCutterCut(bpy.types.Operator):
 
         # Filtring loose parts :
         # resulting_parts = PartsFilter()
-        
-        
 
         # if resulting_parts > 1:
         #     for obj in bpy.context.visible_objects:
@@ -1164,27 +1247,27 @@ class BDENTAL_OT_CurveCutterCut(bpy.types.Operator):
 
         # else:
         #     pass
-            # # bpy.ops.ed.undo()
-            # # Get CuttingTarget :
-            # CuttingTargetName = bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp
-            # CuttingTarget = bpy.data.objects[CuttingTargetName]
-            # CuttingTarget.select_set(True)
-            # bpy.context.view_layer.objects.active = CuttingTarget
+        # # bpy.ops.ed.undo()
+        # # Get CuttingTarget :
+        # CuttingTargetName = bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp
+        # CuttingTarget = bpy.data.objects[CuttingTargetName]
+        # CuttingTarget.select_set(True)
+        # bpy.context.view_layer.objects.active = CuttingTarget
 
-            # bol = True
+        # bol = True
 
-            # while bol:
-            #     bol = IterateSeparator()
+        # while bol:
+        #     bol = IterateSeparator()
 
-            # # Filtring loose parts :
-            # resulting_parts = PartsFilter()
-            # print("Cutting done with second method")
+        # # Filtring loose parts :
+        # resulting_parts = PartsFilter()
+        # print("Cutting done with second method")
 
-            # bpy.ops.object.select_all(action="DESELECT")
-            # ob = bpy.context.visible_objects[-1]
-            # ob.select_set(True)
-            # bpy.context.view_layer.objects.active = ob
-            # bpy.ops.wm.tool_set_by_id(name="builtin.select")
+        # bpy.ops.object.select_all(action="DESELECT")
+        # ob = bpy.context.visible_objects[-1]
+        # ob.select_set(True)
+        # bpy.context.view_layer.objects.active = ob
+        # bpy.ops.wm.tool_set_by_id(name="builtin.select")
 
         return {"FINISHED"}
 
@@ -1291,7 +1374,9 @@ class BDENTAL_OT_CurveCutterAdd2(bpy.types.Operator):
 
                 # Assign Model name to CuttingTarget property :
                 CuttingTarget = bpy.context.view_layer.objects.active
-                bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp = CuttingTarget.name
+                bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp = (
+                    CuttingTarget.name
+                )
 
                 bpy.ops.object.mode_set(mode="OBJECT")
                 bpy.ops.object.hide_view_clear()
@@ -1332,7 +1417,6 @@ class BDENTAL_OT_CurveCutter2_ShortPath(bpy.types.Operator):
 
     def execute(self, context):
 
-        
         t0 = Tcounter()
         ###########################################################################
         # Get CuttingTarget :
@@ -1343,7 +1427,7 @@ class BDENTAL_OT_CurveCutter2_ShortPath(bpy.types.Operator):
         CurveCutterName = bpy.context.scene.BDENTAL_Props.CurveCutterNameProp
         CurveCutter = bpy.data.objects[CurveCutterName]
 
-        if bpy.context.mode != 'OBJECT' :
+        if bpy.context.mode != "OBJECT":
             bpy.ops.object.mode_set(mode="OBJECT")
 
         bpy.ops.object.select_all(action="DESELECT")
@@ -1365,8 +1449,7 @@ class BDENTAL_OT_CurveCutter2_ShortPath(bpy.types.Operator):
         CurveCoList = CutterPointsList(CurveCutter, CuttingTarget)
         # list of mesh verts IDs that are closest to curve points :
         Closest_VIDs = [
-            ClosestVerts(i, CurveCoList, CuttingTarget)
-            for i in range(len(CurveCoList))
+            ClosestVerts(i, CurveCoList, CuttingTarget) for i in range(len(CurveCoList))
         ]
 
         path = Closest_VIDs.copy()
@@ -1411,7 +1494,7 @@ class BDENTAL_OT_CurveCutter2_ShortPath(bpy.types.Operator):
         intersect_vgroup = CuttingTarget.vertex_groups.new(name="intersect_vgroup")
         bpy.ops.object.vertex_group_assign()
 
-                # 1st methode :
+        # 1st methode :
         SplitSeparator(CuttingTarget=CuttingTarget)
 
         # # Filtring loose parts :
@@ -1425,7 +1508,7 @@ class BDENTAL_OT_CurveCutter2_ShortPath(bpy.types.Operator):
         #     print("Cutting done with first method")
 
         # else:
-        
+
         #     # Get CuttingTarget :
         #     CuttingTargetName = bpy.context.scene.BDENTAL_Props.CuttingTargetNameProp
         #     CuttingTarget = bpy.data.objects[CuttingTargetName]
@@ -1468,6 +1551,7 @@ class BDENTAL_OT_CurveCutter2_ShortPath(bpy.types.Operator):
     #     print(f"FINISHED in {t1-t0} secondes")
 
     # return {"FINISHED"}
+
 
 #######################################################################################
 # Square cut modal operator :
@@ -1530,7 +1614,9 @@ class BDENTAL_OT_square_cut(bpy.types.Operator):
                 bpy.ops.object.origin_set(type="ORIGIN_GEOMETRY", center="MEDIAN")
                 bpy.context.scene.tool_settings.use_snap = False
 
-                message = [" Please align Model to the Cutting View and click 'ENTER' !"]
+                message = [
+                    " Please align Model to the Cutting View and click 'ENTER' !"
+                ]
                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
                 context.window_manager.modal_handler_add(self)
@@ -1666,6 +1752,7 @@ class BDENTAL_OT_square_cut_exit(bpy.types.Operator):
 
         return {"FINISHED"}
 
+
 class BDENTAL_OT_PaintArea(bpy.types.Operator):
     """ Vertex paint area context toggle """
 
@@ -1675,19 +1762,18 @@ class BDENTAL_OT_PaintArea(bpy.types.Operator):
 
     def execute(self, context):
         ActiveObj = context.active_object
-        if not ActiveObj :
+        if not ActiveObj:
 
             message = [" Please select the target object !"]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
-            
 
-        else :
+        else:
 
-            condition = (ActiveObj.type == 'MESH' and ActiveObj.select_get() == True )
+            condition = ActiveObj.type == "MESH" and ActiveObj.select_get() == True
 
-            if not condition :
+            if not condition:
 
                 message = [" Please select the target object !"]
                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
@@ -1697,31 +1783,32 @@ class BDENTAL_OT_PaintArea(bpy.types.Operator):
             else:
 
                 Override, area3D, space3D = CtxOverride(context)
-                bpy.ops.object.mode_set(mode='VERTEX_PAINT')
+                bpy.ops.object.mode_set(mode="VERTEX_PAINT")
                 bpy.ops.wm.tool_set_by_id(name="builtin_brush.Draw")
 
-                DrawBrush = bpy.data.brushes.get('Draw')
-                DrawBrush.blend = 'MIX'
-                DrawBrush.color = (0.0,1.0,0.0)
+                DrawBrush = bpy.data.brushes.get("Draw")
+                DrawBrush.blend = "MIX"
+                DrawBrush.color = (0.0, 1.0, 0.0)
                 DrawBrush.strength = 1.0
                 DrawBrush.use_frontface = True
                 DrawBrush.use_alpha = True
-                DrawBrush.stroke_method = 'SPACE'
-                DrawBrush.curve_preset = 'CUSTOM'
+                DrawBrush.stroke_method = "SPACE"
+                DrawBrush.curve_preset = "CUSTOM"
                 DrawBrush.cursor_color_add = (0.0, 0.0, 1.0, 0.9)
                 DrawBrush.use_cursor_overlay = True
 
                 bpy.context.tool_settings.vertex_paint.tool_slots[0].brush = DrawBrush
 
-                for vg in ActiveObj.vertex_groups :
+                for vg in ActiveObj.vertex_groups:
                     ActiveObj.vertex_groups.remove(vg)
 
-                for VC in ActiveObj.data.vertex_colors :
-                    ActiveObj.data.vertex_colors.remove(VC)   
+                for VC in ActiveObj.data.vertex_colors:
+                    ActiveObj.data.vertex_colors.remove(VC)
 
-                ActiveObj.data.vertex_colors.new(name='BDENTAL_PaintCutter_VC')
+                ActiveObj.data.vertex_colors.new(name="BDENTAL_PaintCutter_VC")
 
-                return {"FINISHED"} 
+                return {"FINISHED"}
+
 
 class BDENTAL_OT_PaintAreaPlus(bpy.types.Operator):
     """ Vertex paint area Paint Plus toggle """
@@ -1731,33 +1818,36 @@ class BDENTAL_OT_PaintAreaPlus(bpy.types.Operator):
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
-        
-        if not context.mode == 'PAINT_VERTEX' :
 
-            message = [" Please select the target object ", "and activate Vertex Paint mode !"]
+        if not context.mode == "PAINT_VERTEX":
+
+            message = [
+                " Please select the target object ",
+                "and activate Vertex Paint mode !",
+            ]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
-            
 
-        else :
+        else:
             Override, area3D, space3D = CtxOverride(context)
             bpy.ops.wm.tool_set_by_id(name="builtin_brush.Draw")
-            DrawBrush = bpy.data.brushes.get('Draw')
+            DrawBrush = bpy.data.brushes.get("Draw")
             context.tool_settings.vertex_paint.tool_slots[0].brush = DrawBrush
-            DrawBrush.blend = 'MIX'
-            DrawBrush.color = (0.0,1.0,0.0)
+            DrawBrush.blend = "MIX"
+            DrawBrush.color = (0.0, 1.0, 0.0)
             DrawBrush.strength = 1.0
             DrawBrush.use_frontface = True
             DrawBrush.use_alpha = True
-            DrawBrush.stroke_method = 'SPACE'
-            DrawBrush.curve_preset = 'CUSTOM'
+            DrawBrush.stroke_method = "SPACE"
+            DrawBrush.curve_preset = "CUSTOM"
             DrawBrush.cursor_color_add = (0.0, 0.0, 1.0, 0.9)
             DrawBrush.use_cursor_overlay = True
             space3D.show_region_header = False
             space3D.show_region_header = True
 
-            return {"FINISHED"} 
+            return {"FINISHED"}
+
 
 class BDENTAL_OT_PaintAreaMinus(bpy.types.Operator):
     """ Vertex paint area Paint Minus toggle """
@@ -1768,32 +1858,35 @@ class BDENTAL_OT_PaintAreaMinus(bpy.types.Operator):
 
     def execute(self, context):
 
-        if not context.mode == 'PAINT_VERTEX' :
+        if not context.mode == "PAINT_VERTEX":
 
-            message = [" Please select the target object ", "and activate Vertex Paint mode !"]
+            message = [
+                " Please select the target object ",
+                "and activate Vertex Paint mode !",
+            ]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
-            
 
-        else :
+        else:
             Override, area3D, space3D = CtxOverride(context)
             bpy.ops.wm.tool_set_by_id(name="builtin_brush.Draw")
-            LightenBrush = bpy.data.brushes.get('Lighten')
+            LightenBrush = bpy.data.brushes.get("Lighten")
             context.tool_settings.vertex_paint.tool_slots[0].brush = LightenBrush
-            LightenBrush.blend = 'MIX'
-            LightenBrush.color = (1.0,1.0,1.0)
+            LightenBrush.blend = "MIX"
+            LightenBrush.color = (1.0, 1.0, 1.0)
             LightenBrush.strength = 1.0
             LightenBrush.use_frontface = True
             LightenBrush.use_alpha = True
-            LightenBrush.stroke_method = 'SPACE'
-            LightenBrush.curve_preset = 'CUSTOM'
+            LightenBrush.stroke_method = "SPACE"
+            LightenBrush.curve_preset = "CUSTOM"
             LightenBrush.cursor_color_add = (1, 0.0, 0.0, 0.9)
             LightenBrush.use_cursor_overlay = True
             space3D.show_region_header = False
             space3D.show_region_header = True
 
-            return {"FINISHED"} 
+            return {"FINISHED"}
+
 
 class BDENTAL_OT_PaintCut(bpy.types.Operator):
     """ Vertex paint Cut """
@@ -1807,47 +1900,33 @@ class BDENTAL_OT_PaintCut(bpy.types.Operator):
         item = (str(Cut_Modes_List[i]), str(Cut_Modes_List[i]), str(""), int(i))
         items.append(item)
 
-    Cut_Mode_Prop : EnumProperty(name="Cut Mode", items=items, description="Cut Mode", default="Cut")
+    Cut_Mode_Prop: EnumProperty(
+        name="Cut Mode", items=items, description="Cut Mode", default="Cut"
+    )
 
     def execute(self, context):
 
         VertexPaintCut(mode=self.Cut_Mode_Prop)
-        bpy.ops.ed.undo_push(message='BDENTAL Paint Cutter')
+        bpy.ops.ed.undo_push(message="BDENTAL Paint Cutter")
 
-        return {"FINISHED"} 
+        return {"FINISHED"}
 
     def invoke(self, context, event):
 
-        if not context.mode == 'PAINT_VERTEX' :
+        if not context.mode == "PAINT_VERTEX":
 
-            message = [" Please select the target object ", "and activate Vertex Paint mode !"]
+            message = [
+                " Please select the target object ",
+                "and activate Vertex Paint mode !",
+            ]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
             return {"CANCELLED"}
-            
 
-        else :
-            
+        else:
+
             wm = context.window_manager
             return wm.invoke_props_dialog(self)
-
-
-
-            
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     #     if event.type == "P":
     #         if event.value == ("PRESS"):
@@ -1857,7 +1936,6 @@ class BDENTAL_OT_PaintCut(bpy.types.Operator):
     #             self.space3D.show_region_header = True
     #             return {"PASS_THROUGH"}
 
-                
     #     if event.type == "M":
     #         if event.value == ("PRESS"):
     #             print("M pressed")
@@ -1865,7 +1943,7 @@ class BDENTAL_OT_PaintCut(bpy.types.Operator):
     #             self.space3D.show_region_header = False
     #             self.space3D.show_region_header = True
     #             return {"PASS_THROUGH"}
-                
+
     #     if event.type == "RET":
 
     #         bpy.ops.object.mode_set(mode='OBJECT')
@@ -1886,7 +1964,6 @@ class BDENTAL_OT_PaintCut(bpy.types.Operator):
     #         for VC in self.ActiveObj.data.vertex_colors :
     #             if VC.name.startswith('BDENTAL_PaintCutter') :
     #                 self.ActiveObj.data.vertex_colors.remove(VC)
-            
 
     #         return {"CANCELLED"}
 
@@ -1895,7 +1972,6 @@ class BDENTAL_OT_PaintCut(bpy.types.Operator):
     #         return {"PASS_THROUGH"}
 
     #     return {"RUNNING_MODAL"}
-
 
     # def invoke(self, context, event):
 
@@ -1906,7 +1982,6 @@ class BDENTAL_OT_PaintCut(bpy.types.Operator):
     #         ShowMessageBox(message=message, icon="COLORSET_02_VEC")
 
     #         return {"CANCELLED"}
-            
 
     #     else :
 
@@ -1936,10 +2011,6 @@ class BDENTAL_OT_PaintCut(bpy.types.Operator):
     #             self.DrawBrush.cursor_color_add = (0.0, 0.0, 1.0, 0.9)
     #             self.DrawBrush.use_cursor_overlay = True
 
-
-
-
-
     #             self.LightenBrush = bpy.data.brushes.get('Lighten')
     #             self.LightenBrush.blend = 'MIX'
     #             self.LightenBrush.color = (1.0,1.0,1.0)
@@ -1951,7 +2022,6 @@ class BDENTAL_OT_PaintCut(bpy.types.Operator):
     #             self.LightenBrush.cursor_color_add = (1, 0.0, 0.0, 0.9)
     #             self.LightenBrush.use_cursor_overlay = True
 
-
     #             self.VP_Slot = bpy.context.tool_settings.vertex_paint.tool_slots[0]
 
     #             self.VP_Slot.brush = self.DrawBrush
@@ -1960,19 +2030,11 @@ class BDENTAL_OT_PaintCut(bpy.types.Operator):
     #                 self.ActiveObj.vertex_groups.remove(vg)
 
     #             for VC in self.ActiveObj.data.vertex_colors :
-    #                 self.ActiveObj.data.vertex_colors.remove(VC)   
+    #                 self.ActiveObj.data.vertex_colors.remove(VC)
 
     #             self.BDENTAL_PaintCutter_VC = self.ActiveObj.data.vertex_colors.new(name='BDENTAL_PaintCutter_VC')
     #             context.window_manager.modal_handler_add(self)
     #             return {"RUNNING_MODAL"}
-
-
-
-
-
-
-
-
 
 
 #################################################################################################
@@ -2005,7 +2067,6 @@ classes = [
     BDENTAL_OT_PaintAreaPlus,
     BDENTAL_OT_PaintAreaMinus,
     BDENTAL_OT_PaintCut,
-
 ]
 
 
@@ -2019,5 +2080,3 @@ def unregister():
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
-
-
