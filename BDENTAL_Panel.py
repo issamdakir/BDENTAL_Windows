@@ -178,7 +178,10 @@ class BDENTAL_PT_Measurements(bpy.types.Panel):
         layout = self.layout
         Box = layout.box()
         row = Box.row()
-        row.operator("bdental.referenceplanes")
+        row.operator("bdental.add_markup_point")
+        row.operator("bdental.add_reference_planes")
+        row = Box.row()
+        row.operator("bdental.ctvolume_orientation")
 
 
 class BDENTAL_PT_MeshesTools_Panel(bpy.types.Panel):

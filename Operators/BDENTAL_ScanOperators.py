@@ -983,6 +983,64 @@ class BDENTAL_OT_AddSlices(bpy.types.Operator):
                 return {"FINISHED"}
 
 
+class BDENTAL_OT_CtVolumeOrientation(bpy.types.Operator):
+    """ CtVolume Orientation according to Frankfort Plane """
+
+    bl_idname = "bdental.ctvolume_orientation"
+    bl_label = "CTVolume Orientation"
+
+    def execute(self, context):
+
+        BDENTAL_Props = bpy.context.scene.BDENTAL_Props
+        Active_Obj = bpy.context.view_layer.objects.active
+
+        if not Active_Obj:
+            message = [" Please select CTVOLUME for segmentation ! "]
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+            return {"CANCELLED"}
+        else:
+            Conditions = [
+                not Active_Obj.name.startswith("BD"),
+                not Active_Obj.name.endswith("_CTVolume"),
+                Active_Obj.select_get() == False,
+            ]
+
+            if Conditions[0] or Conditions[1] or Conditions[2]:
+                message = ["CTVOLUME Orientation : ", "Please select CTVOLUME ! "]
+                ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+                return {"CANCELLED"}
+
+            else:
+                Preffix = Active_Obj.name[:5]
+                DcmInfo = eval(BDENTAL_Props.DcmInfo)
+                if not "Frankfort" in DcmInfo[Preffix].keys():
+                    message = [
+                        "CTVOLUME Orientation : ",
+                        "Please Add Reference Planes before CTVOLUME Orientation ! ",
+                    ]
+                    ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+                    return {"CANCELLED"}
+                else:
+                    Frankfort_Plane = bpy.data.objects.get(
+                        DcmInfo[Preffix]["Frankfort"]
+                    )
+                    if not Frankfort_Plane:
+                        message = [
+                            "CTVOLUME Orientation : ",
+                            "Frankfort Reference Plane has been removed",
+                            "Please Add Reference Planes before CTVOLUME Orientation ! ",
+                        ]
+                        ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+                        return {"CANCELLED"}
+                    else:
+                        Active_Obj.matrix_world = (
+                            Frankfort_Plane.matrix_world.inverted()
+                            @ Active_Obj.matrix_world
+                        )
+                        bpy.ops.view3d.view_center_cursor()
+                        return {"FINISHED"}
+
+
 class BDENTAL_OT_ResetCtVolumePosition(bpy.types.Operator):
     """ Reset the CtVolume to its original Patient Position """
 
@@ -1019,6 +1077,66 @@ class BDENTAL_OT_ResetCtVolumePosition(bpy.types.Operator):
                 Vol.matrix_world = TransformMatrix
 
                 return {"FINISHED"}
+
+
+class BDENTAL_OT_AddMarkupPoint(bpy.types.Operator):
+    """ Add Markup point """
+
+    bl_idname = "bdental.add_markup_point"
+    bl_label = "ADD MARKUP POINT"
+
+    MarkupName: StringProperty(
+        name="Markup Name",
+        default="Markup 01",
+        description="Markup Name",
+    )
+    MarkupColor: FloatVectorProperty(
+        name="Markup Color",
+        description="Markup Color",
+        default=[1.0, 0.0, 0.0, 1.0],
+        size=4,
+        subtype="COLOR",
+    )
+
+    CollName = "Markup Points"
+
+    def execute(self, context):
+
+        if self.MarkupVoxelMode:
+            Preffix = self.TargetObject.name[:5]
+            CursorToVoxelPoint(Preffix=Preffix, CursorMove=True)
+
+        Co = context.scene.cursor.location
+        P = AddMarkupPoint(
+            name=self.MarkupName, color=self.MarkupColor, loc=Co, CollName=self.CollName
+        )
+
+        return {"FINISHED"}
+
+    def invoke(self, context, event):
+
+        self.BDENTAL_Props = bpy.context.scene.BDENTAL_Props
+
+        Active_Obj = bpy.context.view_layer.objects.active
+
+        if not Active_Obj:
+            message = [" Please select Target Object ! "]
+            ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+            return {"CANCELLED"}
+
+        else:
+            if Active_Obj.select_get() == False:
+                message = [" Please select Target Object ! "]
+                ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+                return {"CANCELLED"}
+
+            else:
+                self.TargetObject = Active_Obj
+                self.MarkupVoxelMode = self.TargetObject.name.startswith(
+                    "BD"
+                ) and self.TargetObject.name.endswith("_CTVolume")
+                wm = context.window_manager
+                return wm.invoke_props_dialog(self)
 
 
 ###############################################################################
@@ -1825,10 +1943,10 @@ class BDENTAL_OT_MultiView(bpy.types.Operator):
 #         return None
 
 
-class BDENTAL_OT_ReferencePlanes(bpy.types.Operator):
+class BDENTAL_OT_AddReferencePlanes(bpy.types.Operator):
     """ Add Reference Planes"""
 
-    bl_idname = "bdental.referenceplanes"
+    bl_idname = "bdental.add_reference_planes"
     bl_label = "Add REFERENCE PLANES"
     bl_options = {"REGISTER", "UNDO"}
 
@@ -1860,14 +1978,15 @@ class BDENTAL_OT_ReferencePlanes(bpy.types.Operator):
         #########################################
         elif event.type == "RET":
             if event.value == ("PRESS"):
-                # if not self.CurrentPointsList:
-                #     P = AddMarkupPoint(self.PointsNames[0], self.Color, self.CollName)
-                #     self.CurrentPointsList.append(P)
-                # if self.CurrentPointsList:
+
                 CurrentPointsNames = [P.name for P in self.CurrentPointsList]
                 P_Names = [P for P in self.PointsNames if not P in CurrentPointsNames]
                 if P_Names:
-                    P = AddMarkupPoint(P_Names[0], self.Color, self.CollName)
+                    if self.MarkupVoxelMode:
+                        CursorToVoxelPoint(Preffix=self.Preffix, CursorMove=True)
+
+                    loc = context.scene.cursor.location
+                    P = AddMarkupPoint(P_Names[0], self.Color, loc, self.CollName)
                     self.CurrentPointsList.append(P)
 
                 if not P_Names:
@@ -1880,6 +1999,21 @@ class BDENTAL_OT_ReferencePlanes(bpy.types.Operator):
                         color=(0.0, 0.0, 0.2, 0.7),
                         CollName=self.CollName,
                     )
+                    bpy.ops.object.select_all(action="DESELECT")
+                    for Plane in RefPlanes:
+                        Plane.select_set(True)
+                    CurrentPoints = [
+                        bpy.data.objects.get(PName) for PName in CurrentPointsNames
+                    ]
+                    for P in CurrentPoints:
+                        P.select_set(True)
+                    self.TargetObject.select_set(True)
+                    bpy.context.view_layer.objects.active = self.TargetObject
+                    bpy.ops.object.parent_set(type="OBJECT", keep_transform=True)
+                    bpy.ops.object.select_all(action="DESELECT")
+                    self.DcmInfo[self.Preffix]["Frankfort"] = RefPlanes[0].name
+                    BDENTAL_Props = bpy.context.scene.BDENTAL_Props
+                    BDENTAL_Props.DcmInfo = str(self.DcmInfo)
                     ##########################################################
                     space3D.overlay.show_outline_selected = True
                     space3D.overlay.show_object_origins = True
@@ -1892,8 +2026,6 @@ class BDENTAL_OT_ReferencePlanes(bpy.types.Operator):
                     # ###########################################################
                     bpy.ops.wm.tool_set_by_id(Override, name="builtin.select")
                     bpy.context.scene.tool_settings.use_snap = False
-                    space3D.shading.background_color = self.background_color
-                    space3D.shading.background_type = self.background_type
 
                     bpy.context.scene.cursor.location = (0, 0, 0)
                     bpy.ops.screen.region_toggle(Override, region_type="UI")
@@ -1925,8 +2057,6 @@ class BDENTAL_OT_ReferencePlanes(bpy.types.Operator):
             ###########################################################
             bpy.ops.wm.tool_set_by_id(Override, name="builtin.select")
             bpy.context.scene.tool_settings.use_snap = False
-            space3D.shading.background_color = self.background_color
-            space3D.shading.background_type = self.background_type
 
             bpy.context.scene.cursor.location = (0, 0, 0)
             bpy.ops.screen.region_toggle(Override, region_type="UI")
@@ -1942,66 +2072,73 @@ class BDENTAL_OT_ReferencePlanes(bpy.types.Operator):
         return {"RUNNING_MODAL"}
 
     def invoke(self, context, event):
-        Condition_1 = bpy.context.selected_objects and bpy.context.active_object
 
-        if not Condition_1:
+        Active_Obj = bpy.context.view_layer.objects.active
 
-            message = [
-                "Please select Target object",
-            ]
+        if not Active_Obj:
+            message = [" Please select Target Object ! "]
             ShowMessageBox(message=message, icon="COLORSET_02_VEC")
-
             return {"CANCELLED"}
-
         else:
-            if context.space_data.type == "VIEW_3D":
-
-                # Prepare scene  :
-                ##########################################################
-                bpy.context.space_data.overlay.show_outline_selected = False
-                bpy.context.space_data.overlay.show_object_origins = False
-                bpy.context.space_data.overlay.show_annotation = False
-                bpy.context.space_data.overlay.show_text = True
-                bpy.context.space_data.overlay.show_extras = False
-                bpy.context.space_data.overlay.show_floor = False
-                bpy.context.space_data.overlay.show_axis_x = False
-                bpy.context.space_data.overlay.show_axis_y = False
-                bpy.context.scene.tool_settings.use_snap = True
-                bpy.context.scene.tool_settings.snap_elements = {"FACE"}
-                bpy.context.scene.tool_settings.transform_pivot_point = (
-                    "INDIVIDUAL_ORIGINS"
-                )
-                bpy.ops.wm.tool_set_by_id(name="builtin.cursor")
-
-                ###########################################################
-                self.CollName = "REFERENCE PLANES"
-                self.CurrentPointsList = []
-                self.PointsNames = ["R_Or", "L_Or", "R_Po", "L_Po"]
-                self.Color = [1, 0, 0, 1]  # Red color
-                self.TargetObject = bpy.context.active_object
-                self.visibleObjects = bpy.context.visible_objects.copy()
-                self.background_type = bpy.context.space_data.shading.background_type
-                bpy.context.space_data.shading.background_type = "VIEWPORT"
-                self.background_color = tuple(
-                    bpy.context.space_data.shading.background_color
-                )
-                bpy.context.space_data.shading.background_color = (0.0, 0.0, 0.0)
-
-                Override, area3D, space3D = CtxOverride(context)
-                bpy.ops.screen.region_toggle(Override, region_type="UI")
-                bpy.ops.object.select_all(action="DESELECT")
-                #                bpy.ops.object.select_all(Override, action="DESELECT")
-                context.window_manager.modal_handler_add(self)
-
-                return {"RUNNING_MODAL"}
-
-            else:
+            ValidTarget = Active_Obj.name.startswith("BD") and Active_Obj.name.endswith(
+                ("_CTVolume", "SEGMENTATION")
+            )
+            if Active_Obj.select_get() == False or not ValidTarget:
                 message = [
-                    "Active space must be a View3d",
+                    " Please select Target Object ! ",
+                    "Target Object should be a CTVolume or a Segmentation",
                 ]
                 ShowMessageBox(message=message, icon="COLORSET_02_VEC")
-
                 return {"CANCELLED"}
+
+            else:
+                if context.space_data.type == "VIEW_3D":
+
+                    BDENTAL_Props = bpy.context.scene.BDENTAL_Props
+
+                    # Prepare scene  :
+                    ##########################################################
+                    bpy.context.space_data.overlay.show_outline_selected = False
+                    bpy.context.space_data.overlay.show_object_origins = False
+                    bpy.context.space_data.overlay.show_annotation = False
+                    bpy.context.space_data.overlay.show_text = True
+                    bpy.context.space_data.overlay.show_extras = False
+                    bpy.context.space_data.overlay.show_floor = False
+                    bpy.context.space_data.overlay.show_axis_x = False
+                    bpy.context.space_data.overlay.show_axis_y = False
+                    bpy.context.scene.tool_settings.use_snap = True
+                    bpy.context.scene.tool_settings.snap_elements = {"FACE"}
+                    bpy.context.scene.tool_settings.transform_pivot_point = (
+                        "INDIVIDUAL_ORIGINS"
+                    )
+                    bpy.ops.wm.tool_set_by_id(name="builtin.cursor")
+
+                    ###########################################################
+                    self.CollName = "REFERENCE PLANES"
+                    self.CurrentPointsList = []
+                    self.PointsNames = ["Na", "R_Or", "L_Or", "R_Po", "L_Po"]
+                    self.Color = [1, 0, 0, 1]  # Red color
+                    self.TargetObject = Active_Obj
+                    self.visibleObjects = bpy.context.visible_objects.copy()
+                    self.MarkupVoxelMode = self.TargetObject.name.endswith("_CTVolume")
+                    self.Preffix = self.TargetObject.name[:5]
+                    DcmInfo = BDENTAL_Props.DcmInfo
+                    self.DcmInfo = eval(DcmInfo)
+                    Override, area3D, space3D = CtxOverride(context)
+                    bpy.ops.screen.region_toggle(Override, region_type="UI")
+                    bpy.ops.object.select_all(action="DESELECT")
+                    #                bpy.ops.object.select_all(Override, action="DESELECT")
+                    context.window_manager.modal_handler_add(self)
+
+                    return {"RUNNING_MODAL"}
+
+                else:
+                    message = [
+                        "Active space must be a View3d",
+                    ]
+                    ShowMessageBox(message=message, icon="COLORSET_02_VEC")
+
+                    return {"CANCELLED"}
 
 
 #################################################################################################
@@ -2017,7 +2154,9 @@ classes = [
     # BDENTAL_OT_TreshSegment,
     BDENTAL_OT_MultiTreshSegment,
     BDENTAL_OT_MultiView,
-    BDENTAL_OT_ReferencePlanes,
+    BDENTAL_OT_AddReferencePlanes,
+    BDENTAL_OT_CtVolumeOrientation,
+    BDENTAL_OT_AddMarkupPoint,
 ]
 
 

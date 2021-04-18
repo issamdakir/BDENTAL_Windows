@@ -13,7 +13,8 @@ from bpy.app.handlers import persistent
 # Blender Imports :
 import bpy
 import bmesh
-from mathutils import Matrix, Vector, Euler, kdtree
+import mathutils
+from mathutils import Matrix, Vector, Euler, kdtree, geometry as Geo
 
 import SimpleITK as sitk
 import vtk
@@ -232,9 +233,8 @@ def AddFrankfortPoint(PointsList, color, CollName):
         return None
 
 
-def AddMarkupPoint(name, color, CollName=None):
+def AddMarkupPoint(name, color, loc, CollName=None):
 
-    loc = bpy.context.scene.cursor.location
     bpy.ops.mesh.primitive_uv_sphere_add(radius=1.2, location=loc)
     P = bpy.context.object
     P.name = name
@@ -252,19 +252,28 @@ def AddMarkupPoint(name, color, CollName=None):
     return P
 
 
+def ProjectPoint(Plane, Point):
+
+    V1, V2, V3, V4 = [Plane.matrix_world @ V.co for V in Plane.data.vertices]
+    Ray = Plane.matrix_world.to_3x3() @ Plane.data.polygons[0].normal
+
+    Orig = Point
+    Result = Geo.intersect_ray_tri(V1, V2, V3, Ray, Orig, False)
+    if not Result:
+        Ray *= -1
+        Result = Geo.intersect_ray_tri(V1, V2, V3, Ray, Orig, False)
+    return Result
+
+
 def PointsToFrankfortPlane(ctx, Model, CurrentPointsList, color, CollName=None):
 
     Dim = max(Model.dimensions) * 1.5
-    R_Or, L_Or, R_Po, L_Po = CurrentPointsList
+    Na, R_Or, L_Or, R_Po, L_Po = [P.location for P in CurrentPointsList]
 
-    Rco = R_Po.location
-    Aco = (R_Or.location + L_Or.location) / 2
-    Lco = L_Po.location
+    Center = (R_Or + L_Or + R_Po + L_Po) / 4
 
-    Center = (Rco + Aco + Lco) / 3
-
-    FrankZ = (Rco - Center).cross((Aco - Center)).normalized()
-    FrankX = FrankZ.cross((Aco - Center)).normalized()
+    FrankZ = (R_Or - Center).cross((L_Or - Center)).normalized()
+    FrankX = (Center - Na).cross(FrankZ).normalized()
     FrankY = FrankZ.cross(FrankX).normalized()
 
     FrankMtx = Matrix((FrankX, FrankY, FrankZ)).to_4x4().transposed()
@@ -318,6 +327,14 @@ def PointsToFrankfortPlane(ctx, Model, CurrentPointsList, color, CollName=None):
     if CollName:
         MoveToCollection(CorPlane, CollName)
 
+    # Project Na to Coronal Plane :
+    Na_Projection_1 = ProjectPoint(Plane=CorPlane, Point=Na)
+
+    # Project Na_Projection_1 to frankfort Plane :
+    Na_Projection_2 = ProjectPoint(Plane=FrankfortPlane, Point=Na_Projection_1)
+
+    for Plane in (FrankfortPlane, CorPlane, SagPlane):
+        Plane.location = Na_Projection_2
     return [FrankfortPlane, SagPlane, CorPlane]
 
 
@@ -2481,3 +2498,93 @@ def VertexPaintCut(mode):
         bpy.ops.mesh.select_all(action="INVERT")
         bpy.ops.mesh.delete(type="VERT")
         bpy.ops.object.mode_set(mode="OBJECT")
+
+
+def CursorToVoxelPoint(Preffix, CursorMove=False):
+
+    VoxelPointCo = 0
+    CTVolume = bpy.data.objects.get(f"{Preffix}_CTVolume")
+    TransformMatrix = CTVolume.matrix_world
+    BDENTAL_Props = bpy.context.scene.BDENTAL_Props
+    DcmInfoDict = eval(BDENTAL_Props.DcmInfo)
+    DcmInfo = DcmInfoDict[Preffix]
+    ImageData = bpy.path.abspath(DcmInfo["Nrrd255Path"])
+    Treshold = BDENTAL_Props.Treshold
+    Wmin, Wmax = DcmInfo["Wmin"], DcmInfo["Wmax"]
+
+    Cursor = bpy.context.scene.cursor
+    CursorInitMtx = Cursor.matrix.copy()
+
+    # Get ImageData Infos :
+    Image3D_255 = sitk.ReadImage(ImageData)
+    Sp = Spacing = Image3D_255.GetSpacing()
+    Sz = Size = Image3D_255.GetSize()
+    Ortho_Origin = -0.5 * np.array(Sp) * (np.array(Sz) - np.array((1, 1, 1)))
+    Image3D_255.SetOrigin(Ortho_Origin)
+    Image3D_255.SetDirection(np.identity(3).flatten())
+
+    # Cursor shift :
+    Cursor_Z = Vector((CursorInitMtx[0][2], CursorInitMtx[1][2], CursorInitMtx[2][2]))
+    CT = CursorTrans = -1 * (Sz[2] - 1) * Sp[2] * Cursor_Z
+    CursorTransMatrix = mathutils.Matrix(
+        (
+            (1.0, 0.0, 0.0, CT[0]),
+            (0.0, 1.0, 0.0, CT[1]),
+            (0.0, 0.0, 1.0, CT[2]),
+            (0.0, 0.0, 0.0, 1.0),
+        )
+    )
+
+    # Output Parameters :
+    Out_Origin = [Ortho_Origin[0], Ortho_Origin[1], 0]
+    Out_Direction = Vector(np.identity(3).flatten())
+    Out_Size = Sz
+    Out_Spacing = Sp
+
+    # Get Plane Orientation and location :
+    MyMatrix = TransformMatrix.inverted() @ CursorTransMatrix @ CursorInitMtx
+    Rot = MyMatrix.to_euler()
+    Rvec = (Rot.x, Rot.y, Rot.z)
+    Tvec = MyMatrix.translation
+
+    # Euler3DTransform :
+    Euler3D = sitk.Euler3DTransform()
+    Euler3D.SetCenter((0, 0, 0))
+    Euler3D.SetRotation(Rvec[0], Rvec[1], Rvec[2])
+    Euler3D.SetTranslation(Tvec)
+    Euler3D.ComputeZYXOn()
+
+    #########################################
+
+    Image3D = sitk.Resample(
+        Image3D_255,
+        Out_Size,
+        Euler3D,
+        sitk.sitkLinear,
+        Out_Origin,
+        Out_Spacing,
+        Out_Direction,
+        0,
+    )
+
+    #  # Write Image :
+    # Array = sitk.GetArrayFromImage(Image3D[:,:,Sz[2]-1])#Sz[2]-1
+    # Flipped_Array = np.flipud(Array.reshape(Array.shape[0], Array.shape[1]))
+    # cv2.imwrite(ImagePath, Flipped_Array)
+
+    ImgArray = sitk.GetArrayFromImage(Image3D)
+    Treshold255 = int(((Treshold - Wmin) / (Wmax - Wmin)) * 255)
+
+    RayPixels = ImgArray[:, int(Sz[1] / 2), int(Sz[0] / 2)]
+    ReversedRayPixels = list(reversed(list(RayPixels)))
+
+    for i, P in enumerate(ReversedRayPixels):
+        if P >= Treshold255:
+            VoxelPointCo = Cursor.location - i * Sp[2] * Cursor_Z
+            break
+
+    if CursorMove and VoxelPointCo:
+        bpy.context.scene.cursor.location = VoxelPointCo
+    #############################################
+
+    return VoxelPointCo
